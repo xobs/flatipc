@@ -40,6 +40,8 @@ in Xous are `lend` and `lend_mut()`. This detaches the data from the current pro
 to the target process. The target process can then use the data as if it were its own, and will return
 the data and unblock the sender when it returns the message.
 
+Additionally, it is required that the type be `#[repr(C)]`. This ensures that it has a well-defined layout.
+
 ```rust
 #[derive(flatipc_derive::Ipc)]
 #[repr(C)]
@@ -99,3 +101,20 @@ Because `String` and `Vec` require pointers under the hood, they are not IPC saf
 `String` and `Vec` types are provided that require the user to specify the maximum length of the string.
 This enables the receiver to write into the string and have the result reflected in the caller without
 needing to allocate more memory for very long strings.
+
+## Traits on the Original Type
+
+IPC types can be turned back into the Original type with `Deref` and `DerefMut`. This allows you to
+use the IPC type as if it were the original type by adding `*`. For example:
+
+```rust
+#[derive(flatipc_derive::Ipc, PartialEq, Debug)]
+#[repr(C)]
+struct Value(u32);
+let x = Value(42).into_ipc();
+let y = Value(42);
+
+// `x` is an `IpcValue`, `y` is a `Value`. By dereferencing `x`, we can
+// compare it to `y` using the `PartialEq` trait.
+assert_eq!(*x, y);
+```
