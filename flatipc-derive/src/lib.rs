@@ -245,24 +245,28 @@ fn generate_transmittable_checks_union(
     ast: &syn::DeriveInput,
     unn: &syn::DataUnion,
 ) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
-    // let ident = &ast.ident;
-    // let fields = unn.fields.named.iter().map(|f| {
-    //     let ident = &f.ident;
-    //     let ty = &f.ty;
-    //     quote! {
-    //         #ident: Default::default(),
-    //     }
-    // }).collect();
-    // quote! {
-    //     impl Default for #ident {
-    //         fn default() -> Self {
-    //             Self {
-    //                 #(#fields)*
-    //             }
-    //         }
-    //     }
-    // }
-    Ok(proc_macro2::TokenStream::new())
+    let surrounding_function = format_ident!("ensure_members_are_transmittable_for_{}", ast.ident);
+    let fields: Vec<Result<proc_macro2::TokenStream, proc_macro2::TokenStream>> = unn
+        .fields
+        .named
+        .iter()
+        .map(|f| ensure_type_exists_for(&f.ty))
+        .collect();
+
+    let mut vetted_fields = vec![];
+    for field in fields {
+        match field {
+            Ok(f) => vetted_fields.push(f),
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(quote! {
+        #[allow(non_snake_case, dead_code)]
+        fn #surrounding_function () {
+            pub fn ensure_is_transmittable<T: crate::IpcSafe>() {}
+            #(#vetted_fields)*
+        }
+    })
 }
 
 fn generate_padded_version(
@@ -287,21 +291,11 @@ fn generate_padded_version(
             type Target = #ident ;
             fn deref(&self) -> &Self::Target {
                 &self.original
-                // unsafe {
-                //     let inner_ptr =
-                //         self.data.as_ptr() as *const [u8; core::mem::size_of::< #ident >()] as *const #ident;
-                //     &*inner_ptr
-                // }
             }
         }
 
         impl core::ops::DerefMut for #padded_ident {
             fn deref_mut(&mut self) -> &mut Self::Target {
-                // unsafe {
-                //     let inner_ptr =
-                //         self.data.as_mut_ptr() as *mut [u8; core::mem::size_of::< #ident >()] as *mut #ident ;
-                //     &mut *inner_ptr
-                // }
                 &mut self.original
             }
         }
@@ -378,12 +372,6 @@ fn generate_padded_version(
             }
 
             fn into_original(self) -> Self::Original {
-                // let mut original = [0u8; #ident_size];
-                // original.copy_from_slice(&self.data[0..#ident_size]);
-                // core::mem::forget(self);
-                // unsafe {
-                //     core::mem::transmute(original)
-                // }
                 self.original
             }
 
