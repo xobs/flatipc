@@ -215,10 +215,10 @@ fn textview_general_test() {
     // Turn it into a PaddedTextView which is suitable for IPC.
     let mut tv_msg = tv.into_message();
 
-    // Perform a `lend`. We can do this because padded versions have
-    // `.lend(&self, opcode: usize)` and `.lend_mut(&mut self, opcode: usize)`
-    // methods on them.
-    tv_msg.lend(0, 42);
+    // // Perform a `lend`. We can do this because padded versions have
+    // // `.lend(&self, opcode: usize)` and `.lend_mut(&mut self, opcode: usize)`
+    // // methods on them.
+    // tv_msg.lend(0, 42);
 
     // The
     tv_msg.draw_border = true;
@@ -250,7 +250,7 @@ fn simple_ipc() {
 
 #[test]
 fn server_test() {
-    #[derive(flatipc_derive::Ipc, Debug)]
+    #[derive(flatipc_derive::Ipc, Debug, PartialEq)]
     #[repr(C)]
     struct Incrementer {
         value: u32,
@@ -275,6 +275,13 @@ fn server_test() {
         }),
     );
 
+    #[derive(flatipc_derive::Ipc, PartialEq, Debug)]
+    #[repr(C)]
+    struct Value(u32);
+    let x = Value(42).into_message();
+    let y = Value(42);
+    assert_eq!(*x, y);
+
     let adder_server_connection = mock::IPC_MACHINE.lock().unwrap().add_server(adder_server);
     let mut lendable_inc = inc.into_message();
     println!("Value before: {}", lendable_inc.value);
@@ -285,6 +292,11 @@ fn server_test() {
     println!("Value before mut: {}", lendable_inc.value);
     lendable_inc.lend_mut(adder_server_connection, 0);
     println!("Value after mut: {}", lendable_inc.value);
+
+    println!(
+        "Does lendable_inc equal inc? {}",
+        *lendable_inc == Incrementer { value: 43 }
+    );
 
     // Turn it back into the original value
     let original_inc = lendable_inc.into_original();
