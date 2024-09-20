@@ -212,7 +212,7 @@ fn textview_general_test() {
     // Create a TextView with the default settings
     let tv = TextView::default();
 
-    // Turn it into a PaddedTextView which is suitable for IPC.
+    // Turn it into a IpcTextView which is suitable for IPC.
     let mut tv_msg = tv.into_message();
 
     // The server would get `tv_msg`. Start by manipulating some variables.
