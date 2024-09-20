@@ -215,18 +215,17 @@ fn textview_general_test() {
     // Turn it into a PaddedTextView which is suitable for IPC.
     let mut tv_msg = tv.into_message();
 
-    // // Perform a `lend`. We can do this because padded versions have
-    // // `.lend(&self, opcode: usize)` and `.lend_mut(&mut self, opcode: usize)`
-    // // methods on them.
-    // tv_msg.lend(0, 42);
-
-    // The
+    // The server would get `tv_msg`. Start by manipulating some variables.
     tv_msg.draw_border = true;
     use core::fmt::Write;
     write!(&mut tv_msg.text, "Hello from the server!").unwrap();
 
+    // Turn it back into the original value.
     let original_tv = tv_msg.into_original();
-    println!("Original textview: {:?}", original_tv);
+    println!(
+        "Original textview draw_border: {}  text: {}",
+        original_tv.draw_border, original_tv.text
+    );
 }
 
 #[test]
