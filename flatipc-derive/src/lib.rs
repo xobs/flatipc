@@ -303,9 +303,9 @@ fn generate_padded_version(
             }
         }
 
-        impl crate::ToMemoryMessage for #ident {
-            type Padded = #padded_ident;
-            fn into_message(self) -> Self::Padded {
+        impl crate::IntoIpc for #ident {
+            type IpcType = #padded_ident;
+            fn into_ipc(self) -> Self::IpcType {
                 let mut padded = #padded_ident {
                     data: [0; #padded_size],
                 };
@@ -328,10 +328,10 @@ fn generate_padded_version(
             }
         }
 
-        impl crate::MemoryMesage for #padded_ident {
+        impl crate::Ipc for #padded_ident {
             type Original = #ident ;
 
-            fn from_buffer<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self> {
+            fn from_slice<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self> {
                 if (data.len() < core::mem::size_of::< #padded_ident >()) {
                     return None;
                 }
@@ -345,7 +345,7 @@ fn generate_padded_version(
                 &*(data.as_ptr() as *const u8 as *const #padded_ident)
             }
 
-            fn from_buffer_mut<'a>(data: &'a mut [u8], signature: usize) -> Option<&'a mut Self> {
+            fn from_slice_mut<'a>(data: &'a mut [u8], signature: usize) -> Option<&'a mut Self> {
                 if (data.len() < core::mem::size_of::< #padded_ident >()) {
                     return None;
                 }

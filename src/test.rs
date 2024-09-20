@@ -1,5 +1,4 @@
 mod mock;
-use crate::MemoryMesage;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default, flatipc_derive::IpcSafe)]
 pub struct Point {
@@ -206,14 +205,14 @@ pub struct TextView {
     pub text: crate::String<3000>,
 }
 
-use crate::ToMemoryMessage;
+use crate::{IntoIpc, Ipc};
 #[test]
 fn textview_general_test() {
     // Create a TextView with the default settings
     let tv = TextView::default();
 
     // Turn it into a IpcTextView which is suitable for IPC.
-    let mut tv_msg = tv.into_message();
+    let mut tv_msg = tv.into_ipc();
 
     // The server would get `tv_msg`. Start by manipulating some variables.
     tv_msg.draw_border = true;
@@ -259,7 +258,7 @@ fn server_test() {
 
     let adder_server = mock::Server::new(
         Box::new(|opcode, a, b, buffer| {
-            let flattened = IpcIncrementer::from_buffer(buffer, a).unwrap();
+            let flattened = IpcIncrementer::from_slice(buffer, a).unwrap();
             println!(
                 "In adder server. Opcode: {}.  Current increment value: {} (a: {}, b: {})",
                 opcode, flattened.value, a, b
@@ -268,7 +267,7 @@ fn server_test() {
         }),
         Box::new(|opcode, a, b, buffer| {
             println!("LendMut opcode: {} (a: {}, b: {})", opcode, a, b);
-            let flattened = IpcIncrementer::from_buffer_mut(buffer, a).unwrap();
+            let flattened = IpcIncrementer::from_slice_mut(buffer, a).unwrap();
             flattened.value += 1;
             (0, 0)
         }),
@@ -277,12 +276,12 @@ fn server_test() {
     #[derive(flatipc_derive::Ipc, PartialEq, Debug)]
     #[repr(C)]
     struct Value(u32);
-    let x = Value(42).into_message();
+    let x = Value(42).into_ipc();
     let y = Value(42);
     assert_eq!(*x, y);
 
     let adder_server_connection = mock::IPC_MACHINE.lock().unwrap().add_server(adder_server);
-    let mut lendable_inc = inc.into_message();
+    let mut lendable_inc = inc.into_ipc();
     println!("Value before: {}", lendable_inc.value);
     lendable_inc.lend(adder_server_connection, 0);
     println!("Value after: {}", lendable_inc.value);

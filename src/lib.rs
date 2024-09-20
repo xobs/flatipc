@@ -10,12 +10,6 @@ pub use string::String;
 pub mod vec;
 pub use vec::Vec;
 
-pub trait Ipc: Sized {
-    // fn from_message<'a>(message: &mut MemoryMessage<Self, {core::mem::size_of::<Self>()}>) -> &'a mut Self where Self:Sized;
-
-    // fn into_message(self) -> MemoryMessage<Self, core::mem::size_of::<Self>()> where Self:Sized;
-}
-
 unsafe impl IpcSafe for i8 {}
 unsafe impl IpcSafe for i16 {}
 unsafe impl IpcSafe for i32 {}
@@ -26,21 +20,39 @@ unsafe impl IpcSafe for u16 {}
 unsafe impl IpcSafe for u32 {}
 unsafe impl IpcSafe for u64 {}
 unsafe impl IpcSafe for u128 {}
+unsafe impl IpcSafe for f32 {}
+unsafe impl IpcSafe for f64 {}
 unsafe impl IpcSafe for bool {}
 unsafe impl IpcSafe for usize {}
 unsafe impl IpcSafe for isize {}
 unsafe impl IpcSafe for char {}
 unsafe impl<T, const N: usize> IpcSafe for [T; N] where T: IpcSafe {}
 unsafe impl<T> IpcSafe for Option<T> where T: IpcSafe {}
+unsafe impl<T, E> IpcSafe for Result<T, E>
+where
+    T: IpcSafe,
+    E: IpcSafe,
+{
+}
 
-pub trait MemoryMesage {
+pub trait Ipc {
     /// What this memory message is a representation of.
     type Original;
 
-    fn from_buffer<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self>;
+    /// Create an Ipc variant from the original object. Succeeds only if
+    /// the signature passed in matches the signature of `Original`.
+    fn from_slice<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self>;
+
+    /// Unconditionally create a new memory message from the original object.
+    /// It is up to the caller to that `data` contains a valid representation of `Self`.
     unsafe fn from_buffer_unchecked<'a>(data: &'a [u8]) -> &'a Self;
 
-    fn from_buffer_mut<'a>(data: &'a mut [u8], signature: usize) -> Option<&'a mut Self>;
+    /// Create a mutable IPC variant from the original object. Succeeds only if
+    /// the signature passed in matches the signature of `Original`.
+    fn from_slice_mut<'a>(data: &'a mut [u8], signature: usize) -> Option<&'a mut Self>;
+
+    /// Unconditionally create a new mutable memory message from the original object.
+    /// It is up to the caller to that `data` contains a valid representation of `Self`.
     unsafe fn from_buffer_mut_unchecked<'a>(data: &'a mut [u8]) -> &'a mut Self;
 
     /// Return a reference to the original object while keeping the
@@ -63,9 +75,9 @@ pub trait MemoryMesage {
     fn signature(&self) -> u32;
 }
 
-pub trait ToMemoryMessage {
-    type Padded;
-    fn into_message(self) -> Self::Padded;
+pub trait IntoIpc {
+    type IpcType;
+    fn into_ipc(self) -> Self::IpcType;
 }
 
 #[cfg(test)]
