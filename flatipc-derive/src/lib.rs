@@ -1,108 +1,107 @@
 use std::sync::atomic::AtomicUsize;
 
 use proc_macro::TokenStream;
-// use quote::quote;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, spanned::Spanned, DeriveInput, Ident};
-// /// Defines a derive function named `$outer` which parses its input
-// /// `TokenStream` as a `DeriveInput` and then invokes the `$inner` function.
-// ///
-// /// Note that the separate `$outer` parameter is required - proc macro functions
-// /// are currently required to live at the crate root, and so the caller must
-// /// specify the name in order to avoid name collisions.
-// macro_rules! derive {
-//     ($trait:ident => $outer:ident => $inner:ident) => {
-//         #[proc_macro_derive($trait)]
-//         pub fn $outer(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
-//             let ast = syn::parse_macro_input!(ts as DeriveInput);
-//             $inner(&ast).into()
-//         }
-//     };
-// }
+use syn::{parse_macro_input, spanned::Spanned, DeriveInput};
 
-// derive!(XousIpc => derive_xous_ipc => derive_xous_ipc_inner);
+fn ast_hash(ast: &syn::DeriveInput) -> u32 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    ast.hash(&mut hasher);
+    let full_hash = hasher.finish();
+    ((full_hash >> 32) as u32) ^ (full_hash as u32)
+}
 
-// fn derive_xous_ipc_inner(ast: &DeriveInput) -> proc_macro2::TokenStream {
-//     let try_from_bytes = derive_try_from_bytes_inner(ast);
-//     let from_zeros = match &ast.data {
-//         Data::Struct(strct) => derive_from_zeros_struct(ast, strct),
-//         Data::Enum(enm) => derive_from_zeros_enum(ast, enm),
-//         Data::Union(unn) => derive_from_zeros_union(ast, unn),
-//     };
-//     IntoIterator::into_iter([try_from_bytes, from_zeros]).collect()
-// }
-
-// fn derive_try_from_bytes_inner(ast: &DeriveInput) -> proc_macro2::TokenStream {
-//     match &ast.data {
-//         Data::Struct(strct) => derive_try_from_bytes_struct(ast, strct),
-//         Data::Enum(enm) => derive_try_from_bytes_enum(ast, enm),
-//         Data::Union(unn) => derive_try_from_bytes_union(ast, unn),
-//     }
-// }
-
-#[proc_macro_derive(XousIpc)]
-pub fn derive_xous_ipc(ts: TokenStream) -> TokenStream {
-    // println!("AST: {:?}", ts);
+#[proc_macro_derive(IpcSafe)]
+pub fn derive_transmittable(ts: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(ts as syn::DeriveInput);
-    // Ensure the thing is using a repr we support.
-    if let Err(e) = ensure_valid_repr(&ast) {
-        return e.into();
-    }
-    // let try_from_bytes = derive_try_from_bytes_inner(&ast);
-    let result = match &ast.data {
-        syn::Data::Struct(r#struct) => derive_xous_ipc_struct(&ast, r#struct),
-        syn::Data::Enum(r#enum) => derive_xous_ipc_enum(&ast, r#enum),
-        syn::Data::Union(r#union) => derive_xous_ipc_union(&ast, r#union),
+    derive_transmittable_inner(ast).unwrap_or_else(|e| e).into()
+}
+
+fn derive_transmittable_inner(
+    ast: DeriveInput,
+) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
+    let ident = ast.ident.clone();
+    let transmittable_checks = match &ast.data {
+        syn::Data::Struct(r#struct) => generate_transmittable_checks_struct(&ast, r#struct)?,
+        syn::Data::Enum(r#enum) => generate_transmittable_checks_enum(&ast, r#enum)?,
+        syn::Data::Union(r#union) => generate_transmittable_checks_union(&ast, r#union)?,
     };
-    eprintln!("TOKENS: {}", result);
+    let result = quote! {
+        #transmittable_checks
+
+        unsafe impl crate::IpcSafe for #ident {}
+    };
+
+    // eprintln!("TRANSMITTABLE: {}", result);
+    Ok(result)
+}
+
+#[proc_macro_derive(Ipc)]
+pub fn derive_ipc(ts: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(ts as syn::DeriveInput);
+    derive_ipc_inner(ast).unwrap_or_else(|e| e).into()
+}
+
+fn derive_ipc_inner(
+    ast: DeriveInput,
+) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
+    // println!("AST: {:?}", ts);
+    // Ensure the thing is using a repr we support.
+    ensure_valid_repr(&ast)?;
+
+    // let try_from_bytes = derive_try_from_bytes_inner(&ast);
+    let transmittable_checks = match &ast.data {
+        syn::Data::Struct(r#struct) => generate_transmittable_checks_struct(&ast, r#struct)?,
+        syn::Data::Enum(r#enum) => generate_transmittable_checks_enum(&ast, r#enum)?,
+        syn::Data::Union(r#union) => generate_transmittable_checks_union(&ast, r#union)?,
+    };
+    // eprintln!("TRANSMITTABLE_CHECKS: {}", transmittable_checks);
+
+    let padded_version = generate_padded_version(&ast)?;
+
+    eprintln!("PADDED_VERSION: {}", padded_version);
+
     // IntoIterator::into_iter([try_from_bytes, from_zeros]).collect()
     // ts
     // TokenStream::new()
-    result
+    Ok(quote! {
+        #transmittable_checks
+        #padded_version
+    })
 }
 
-fn ensure_valid_repr(ast: &DeriveInput) -> Result<(), TokenStream> {
+fn ensure_valid_repr(ast: &DeriveInput) -> Result<(), proc_macro2::TokenStream> {
     let mut repr_c = false;
-    let mut valid_align = true;
     for attr in ast.attrs.iter() {
         if attr.path().is_ident("repr") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("C") {
                     repr_c = true;
-                    Ok(())
-                // } else if meta.path.is_ident("align") {
-                //     meta.parse_nested_meta(|v| {
-                //         // println!("Align: has value");
-                //         // Err(syn::Error::new(ast.span(), "Align must have a value"))
-                //         Ok(())
-                //     })
-                //     .unwrap();
-                //     // println!("Path: {:?}", meta.value());
-                //     Ok(())
-                //     // // let err: TokenStream =
-                //     // Err(syn::Error::new(
-                //     //     ast.span(),
-                //     //     "XousIpc only supports repr(C) structs",
-                //     // ))
-                //     // // .into();
-                //     // // err
-                } else {
-                    Ok(())
+                    // } else if meta.path.is_ident("align") {
+                    //     meta.parse_nested_meta(|v| {
+                    //         // println!("Align: has value");
+                    //         // Err(syn::Error::new(ast.span(), "Align must have a value"))
+                    //         Ok(())
+                    //     })
+                    //     .unwrap();
+                    //     // println!("Path: {:?}", meta.value());
+                    //     Ok(())
+                    //     // // let err: TokenStream =
+                    //     // Err(syn::Error::new(
+                    //     //     ast.span(),
+                    //     //     "XousIpc only supports repr(C) structs",
+                    //     // ))
+                    //     // // .into();
+                    //     // // err
                 }
+                Ok(())
             })
             .map_err(|e| e.to_compile_error())?;
         }
     }
     if !repr_c {
-        Err(
-            syn::Error::new(ast.span(), "XousIpc only supports repr(C) structs")
-                .to_compile_error()
-                .into(),
-        )
-    // } else if !valid_align {
-    //     Err(syn::Error::new(ast.span(), "Align is not valid")
-    //         .to_compile_error()
-    //         .into())
+        Err(syn::Error::new(ast.span(), "XousIpc only supports repr(C) structs").to_compile_error())
     } else {
         Ok(())
     }
@@ -132,7 +131,7 @@ fn type_to_string(ty: &syn::Type) -> String {
 fn ensure_type_exists_for(
     ty: &syn::Type,
 ) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
-    eprintln!("Type: {}", type_to_string(ty));
+    // eprintln!("Type: {}", type_to_string(ty));
 
     match ty {
         syn::Type::Path(_) => {
@@ -159,13 +158,16 @@ fn ensure_type_exists_for(
             ty.span(),
             format!("This type {} is unexpected", type_to_string(ty)),
         )
-        .to_compile_error()
-        .into()),
+        .to_compile_error()),
     }
 }
 
-fn derive_xous_ipc_enum(ast: &syn::DeriveInput, enm: &syn::DataEnum) -> TokenStream {
+fn generate_transmittable_checks_enum(
+    ast: &syn::DeriveInput,
+    enm: &syn::DataEnum,
+) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     let mut variants = Vec::new();
+
     let surrounding_function = format_ident!("ensure_members_are_transmittable_for_{}", ast.ident);
     for variant in &enm.variants {
         let fields = match &variant.fields {
@@ -186,7 +188,7 @@ fn derive_xous_ipc_enum(ast: &syn::DeriveInput, enm: &syn::DataEnum) -> TokenStr
         for field in fields {
             match field {
                 Ok(f) => vetted_fields.push(f),
-                Err(e) => return e.into(),
+                Err(e) => return Err(e),
             }
         }
 
@@ -194,16 +196,21 @@ fn derive_xous_ipc_enum(ast: &syn::DeriveInput, enm: &syn::DataEnum) -> TokenStr
                 #(#vetted_fields)*
         });
     }
-    quote! {
+
+    Ok(quote! {
+        #[allow(non_snake_case)]
         fn #surrounding_function () {
-            pub fn ensure_is_transmittable<T: crate::Transmittable>() {}
+            pub fn ensure_is_transmittable<T: crate::IpcSafe>() {}
             #(#variants)*
         }
-    }
-    .into()
+
+    })
 }
 
-fn derive_xous_ipc_struct(ast: &syn::DeriveInput, strct: &syn::DataStruct) -> TokenStream {
+fn generate_transmittable_checks_struct(
+    ast: &syn::DeriveInput,
+    strct: &syn::DataStruct,
+) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     let surrounding_function = format_ident!("ensure_members_are_transmittable_for_{}", ast.ident);
     let fields = match &strct.fields {
         syn::Fields::Named(fields) => fields
@@ -222,19 +229,22 @@ fn derive_xous_ipc_struct(ast: &syn::DeriveInput, strct: &syn::DataStruct) -> To
     for field in fields {
         match field {
             Ok(f) => vetted_fields.push(f),
-            Err(e) => return e.into(),
+            Err(e) => return Err(e),
         }
     }
-    quote! {
-        pub fn ensure_is_transmittable<T: crate::Transmittable>() {}
+    Ok(quote! {
+        #[allow(non_snake_case)]
         fn #surrounding_function () {
+            pub fn ensure_is_transmittable<T: crate::IpcSafe>() {}
             #(#vetted_fields)*
         }
-    }
-    .into()
+    })
 }
 
-fn derive_xous_ipc_union(ast: &syn::DeriveInput, unn: &syn::DataUnion) -> TokenStream {
+fn generate_transmittable_checks_union(
+    ast: &syn::DeriveInput,
+    unn: &syn::DataUnion,
+) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     // let ident = &ast.ident;
     // let fields = unn.fields.named.iter().map(|f| {
     //     let ident = &f.ident;
@@ -252,5 +262,135 @@ fn derive_xous_ipc_union(ast: &syn::DeriveInput, unn: &syn::DataUnion) -> TokenS
     //         }
     //     }
     // }
-    TokenStream::new()
+    Ok(proc_macro2::TokenStream::new())
+}
+
+fn generate_padded_version(
+    ast: &DeriveInput,
+) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
+    let visibility = ast.vis.clone();
+    let ident = ast.ident.clone();
+    let padded_ident = format_ident!("Ipc{}", ast.ident);
+    let ident_size = quote! { core::mem::size_of::< #ident >() };
+    let padded_size = quote! { (#ident_size + (4096 - 1)) & !(4096 - 1) };
+    let padding_size = quote! { #padded_size - #ident_size };
+    let hash = ast_hash(ast);
+
+    Ok(quote! {
+        #[repr(C, align(4096))]
+        #visibility struct #padded_ident {
+            data: [u8; #padded_size],
+        }
+
+        impl core::ops::Deref for #padded_ident {
+            type Target = #ident ;
+            fn deref(&self) -> &Self::Target {
+                unsafe {
+                    let inner_ptr =
+                        self.data.as_ptr() as *const [u8; core::mem::size_of::< #ident >()] as *const #ident;
+                    &*inner_ptr
+                }
+            }
+        }
+
+        impl core::ops::DerefMut for #padded_ident {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                unsafe {
+                    let inner_ptr =
+                        self.data.as_ptr() as *mut [u8; core::mem::size_of::< #ident >()] as *mut #ident ;
+                    &mut *inner_ptr
+                }
+            }
+        }
+
+        impl crate::ToMemoryMessage for #ident {
+            type Padded = #padded_ident;
+            fn into_message(self) -> Self::Padded {
+                let mut padded = #padded_ident {
+                    data: [0; #padded_size],
+                };
+                unsafe {
+                    let self_ptr = &self as *const #ident as *const [u8; #ident_size];
+                    padded.data[..#ident_size].copy_from_slice(&*self_ptr);
+                }
+                core::mem::forget(self);
+                padded
+            }
+        }
+
+        impl Drop for #padded_ident {
+            fn drop(&mut self) {
+                unsafe {
+                    let inner_ptr =
+                        self.data.as_ptr() as *mut [u8; core::mem::size_of::< #ident >()] as *mut #ident ;
+                    core::ptr::drop_in_place(inner_ptr);
+                }
+            }
+        }
+
+        impl crate::MemoryMesage for #padded_ident {
+            type Original = #ident ;
+
+            fn from_buffer<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self> {
+                if (data.len() < core::mem::size_of::< #padded_ident >()) {
+                    return None;
+                }
+                if signature as u32 != #hash {
+                    return None;
+                }
+                unsafe { Some(&*(data.as_ptr() as *const u8 as *const #padded_ident)) }
+            }
+
+            unsafe fn from_buffer_unchecked<'a>(data: &'a [u8]) -> &'a Self {
+                &*(data.as_ptr() as *const u8 as *const #padded_ident)
+            }
+
+            fn from_buffer_mut<'a>(data: &'a mut [u8], signature: usize) -> Option<&'a mut Self> {
+                if (data.len() < core::mem::size_of::< #padded_ident >()) {
+                    return None;
+                }
+                if signature as u32 != #hash {
+                    return None;
+                }
+                unsafe { Some(&mut *(data.as_ptr() as *mut u8 as *mut #padded_ident)) }
+            }
+
+            unsafe fn from_buffer_mut_unchecked<'a>(data: &'a mut [u8]) -> &'a mut Self {
+                unsafe { &mut *(data.as_ptr() as *mut u8 as *mut #padded_ident) }
+            }
+
+            fn lend(&self, connection: usize, opcode: usize) {
+                crate::test::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, self.signature() as usize, 0, &self.data);
+            }
+
+            fn lend_mut(&mut self, connection: usize, opcode: usize) {
+                crate::test::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, self.signature() as usize, 0, &mut self.data);
+            }
+
+            fn as_original(&self) -> &Self::Original {
+                unsafe {
+                    &*(self.data[0.. #ident_size].as_ptr() as *const [u8; #ident_size] as *const #ident)
+                }
+            }
+
+            fn as_original_mut(&mut self) -> &mut Self::Original {
+                unsafe {
+                    &mut *(self.data[0.. #ident_size].as_ptr() as *mut [u8; #ident_size] as *mut #ident)
+                }
+            }
+
+            fn into_original(self) -> Self::Original {
+                let mut original = [0u8; #ident_size];
+                original.copy_from_slice(&self.data[0..#ident_size]);
+                core::mem::forget(self);
+                unsafe {
+                    core::mem::transmute(original)
+                }
+            }
+
+            fn signature(&self) -> u32 {
+                #hash
+            }
+        }
+    })
 }

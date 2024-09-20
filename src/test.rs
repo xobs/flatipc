@@ -1,10 +1,13 @@
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+mod mock;
+use crate::MemoryMesage;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, flatipc_derive::IpcSafe)]
 pub struct Point {
     pub x: i16,
     pub y: i16,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, flatipc_derive::IpcSafe)]
 pub enum PixelColor {
     #[default]
     Dark,
@@ -52,7 +55,7 @@ impl From<PixelColor> for usize {
 }
 
 /// Style properties for an object
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, flatipc_derive::IpcSafe)]
 pub struct DrawStyle {
     /// Fill colour of the object
     pub fill_color: Option<PixelColor>,
@@ -64,7 +67,7 @@ pub struct DrawStyle {
     pub stroke_width: i16,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, flatipc_derive::IpcSafe)]
 pub struct Rectangle {
     /// Top left point of the rect
     pub tl: Point,
@@ -77,7 +80,7 @@ pub struct Rectangle {
 }
 
 /// coordinates are local to the canvas, not absolute to the screen
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, flatipc_derive::IpcSafe)]
 pub enum TextBounds {
     // fixed width and height in a rectangle
     BoundingBox(Rectangle),
@@ -101,14 +104,14 @@ impl Default for TextBounds {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, flatipc_derive::IpcSafe)]
 pub struct Gid {
     /// a 128-bit random identifier for graphical objects
     pub gid: [u32; 4],
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
-// operations that may be requested of a TextView when sent to GAM
+#[derive(Debug, Copy, Clone, PartialEq, Default, flatipc_derive::IpcSafe)]
+/// operations that may be requested of a TextView when sent to GAM
 pub enum TextOp {
     #[default]
     Nop,
@@ -117,7 +120,7 @@ pub enum TextOp {
 }
 
 /// Style options for Latin script fonts
-#[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Default, flatipc_derive::IpcSafe)]
 pub enum GlyphStyle {
     #[default]
     Small = 0,
@@ -131,145 +134,106 @@ pub enum GlyphStyle {
 }
 
 /// Point specifies a pixel coordinate
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Default, flatipc_derive::IpcSafe)]
 pub struct Pt {
     pub x: i16,
     pub y: i16,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Default, flatipc_derive::IpcSafe)]
 pub struct Cursor {
     pub pt: Pt,
     pub line_height: usize,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, flatipc_derive::Ipc)]
 #[repr(C)]
 pub struct TextView {
-    // this is the operation as specified for the GAM. Note this is different from the "op" when sent to
-    // graphics-server only the GAM should be sending TextViews to the graphics-server, and a different
-    // coding scheme is used for that link.
+    /// The operation as specified for the GAM. Note this is different from the "op" when sent to
+    /// graphics-server only the GAM should be sending TextViews to the graphics-server, and a different
+    /// coding scheme is used for that link.
     operation: TextOp,
-    canvas: Gid, // GID of the canvas to draw on
-    pub clip_rect: Option<Rectangle>, /* this is set by the GAM to the canvas' clip_rect; needed by gfx
-                                       * for drawing. Note this is in screen coordinates. */
 
-    pub untrusted: bool, // render content with random stipples to indicate the strings within are untrusted
-    pub token: Option<[u32; 4]>, // optional 128-bit token which is presented to prove a field's trustability
-    pub invert: bool, // only trusted, token-validated TextViews will have the invert bit respected
+    /// GID of the canvas to draw on
+    canvas: Gid,
 
-    // offsets for text drawing -- exactly one of the following options should be specified
-    // note that the TextBounds coordinate system is local to the canvas, not the screen
+    /// Set by the GAM to the canvas' clip_rect; needed by gfx
+    /// for drawing. Note this is in screen coordinates.
+    pub clip_rect: Option<Rectangle>,
+
+    /// Render content with random stipples to indicate the strings within are untrusted
+    pub untrusted: bool,
+
+    /// optional 128-bit token which is presented to prove a field's trustability
+    pub token: Option<[u32; 4]>,
+
+    /// Only trusted, token-validated TextViews will have the invert bit respected
+    pub invert: bool,
+
+    /// offsets for text drawing -- exactly one of the following options should be specified
+    /// note that the TextBounds coordinate system is local to the canvas, not the screen
     pub bounds_hint: TextBounds,
-    pub bounds_computed: Option<Rectangle>, /* is Some(Rectangle) if bounds have been computed and text
-                                             * has not been modified. This is local to the canvas. */
-    pub overflow: Option<bool>, /* indicates if the text has overflowed the canvas, set by the drawing
-                                 * routine */
-    dry_run: bool, /* callers should not set; use TexOp to select. gam-side bookkeepping, set to true if
-                    * no drawing is desired and we just want to compute the bounds */
+
+    /// Some(Rectangle) if bounds have been computed and text
+    /// has not been modified. This is local to the canvas.
+    pub bounds_computed: Option<Rectangle>,
+
+    /// indicates if the text has overflowed the canvas, set by the drawing routine
+    pub overflow: Option<bool>,
+    /// callers should not set; use TexOp to select. gam-side bookkeepping, set to true if
+    /// no drawing is desired and we just want to compute the bounds
+    dry_run: bool,
 
     pub style: GlyphStyle,
     pub cursor: Cursor,
-    pub insertion: Option<i32>, // this is the insertion point offset, if it's to be drawn, on the string
+    /// this is the insertion point offset, if it's to be drawn, on the string
+    pub insertion: Option<i32>,
     pub ellipsis: bool,
 
     pub draw_border: bool,
-    pub clear_area: bool, // you almost always want this to be true
+    /// you almost always want this to be true
+    pub clear_area: bool,
     pub border_width: u16,
-    pub rounded_border: Option<u16>, // radius of the rounded border, if applicable
+    /// radius of the rounded border, if applicable
+    pub rounded_border: Option<u16>,
     pub margin: Point,
 
-    // this field specifies the beginning and end of a "selected" region of text
+    /// this field specifies the beginning and end of a "selected" region of text
     pub selected: Option<[u32; 2]>,
 
-    // this field tracks the state of a busy animation, if `Some`
+    /// this field tracks the state of a busy animation, if `Some`
     pub busy_animation_state: Option<u32>,
-    // pub text: String,
+    pub text: crate::String<3000>,
 }
 
-const PAGE_SIZE: usize = 4096;
-const TV_SIZE: usize = core::mem::size_of::<TextView>();
-// Round tv_size up to the next 4096-byte boundary
-const PADDED_SIZE: usize = ((TV_SIZE + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1)) - TV_SIZE;
-#[repr(C, align(4096))]
-pub struct PaddedTextView {
-    data: [u8; TV_SIZE],
-    padding: [u8; PADDED_SIZE],
-}
-
-pub trait MemoryMesage {
-    type Original;
-    fn to_original(self) -> Self::Original;
-}
-
-pub trait ToMemoryMessage {
-    type Padded;
-    fn into_message(self) -> Self::Padded;
-}
-
-impl ToMemoryMessage for TextView {
-    type Padded = PaddedTextView;
-    fn into_message(self) -> PaddedTextView {
-        let mut padded = PaddedTextView {
-            data: [0; TV_SIZE],
-            padding: [0; PADDED_SIZE],
-        };
-        unsafe {
-            let tv_ptr = &mut padded.data as *mut [u8; TV_SIZE] as *mut TextView;
-            core::ptr::write(tv_ptr, self);
-        }
-        padded
-    }
-}
-
-impl MemoryMesage for PaddedTextView {
-    type Original = TextView;
-    fn to_original(self) -> Self::Original {
-        let mut tv = TextView::default();
-        unsafe {
-            let tv_ptr = &mut tv as *mut TextView as *mut [u8; TV_SIZE];
-            core::ptr::copy(&self.data, tv_ptr, 1);
-        }
-        tv
-    }
-}
-
-impl core::ops::Deref for PaddedTextView {
-    type Target = TextView;
-    fn deref(&self) -> &Self::Target {
-        unsafe {
-            let tv_ptr = &self.data as *const [u8; TV_SIZE] as *const TextView;
-            &*tv_ptr
-        }
-    }
-}
-
-impl core::ops::DerefMut for PaddedTextView {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe {
-            let tv_ptr = &mut self.data as *mut [u8; TV_SIZE] as *mut TextView;
-            &mut *tv_ptr
-        }
-    }
-}
-
+use crate::ToMemoryMessage;
 #[test]
-fn padded_textview() {
+fn textview_general_test() {
+    // Create a TextView with the default settings
     let tv = TextView::default();
-    println!("Padded textview: {:?}", tv);
 
+    // Turn it into a PaddedTextView which is suitable for IPC.
     let mut tv_msg = tv.into_message();
-    tv_msg.draw_border = true;
 
-    let original_tv = tv_msg.to_original();
+    // Perform a `lend`. We can do this because padded versions have
+    // `.lend(&self, opcode: usize)` and `.lend_mut(&mut self, opcode: usize)`
+    // methods on them.
+    tv_msg.lend(0, 42);
+
+    // The
+    tv_msg.draw_border = true;
+    use core::fmt::Write;
+    write!(&mut tv_msg.text, "Hello from the server!").unwrap();
+
+    let original_tv = tv_msg.into_original();
     println!("Original textview: {:?}", original_tv);
 }
 
 #[test]
 fn simple_ipc() {
-    #[derive(flatipc_derive::XousIpc, Debug)]
+    #[derive(flatipc_derive::Ipc, Debug)]
     #[repr(C)]
-    enum SimpleIpc {
+    pub enum SimpleIpc {
         Single(u32),
     }
 
@@ -282,4 +246,47 @@ fn simple_ipc() {
     let simple_ipc = SimpleIpc::default();
 
     println!("Simple IPC: {:?}", simple_ipc);
+}
+
+#[test]
+fn server_test() {
+    #[derive(flatipc_derive::Ipc, Debug)]
+    #[repr(C)]
+    struct Incrementer {
+        value: u32,
+    }
+
+    let inc = Incrementer { value: 42 };
+
+    let adder_server = mock::Server::new(
+        Box::new(|opcode, a, b, buffer| {
+            let flattened = IpcIncrementer::from_buffer(buffer, a).unwrap();
+            println!(
+                "In adder server. Opcode: {}.  Current increment value: {} (a: {}, b: {})",
+                opcode, flattened.value, a, b
+            );
+            (0, 0)
+        }),
+        Box::new(|opcode, a, b, buffer| {
+            println!("LendMut opcode: {} (a: {}, b: {})", opcode, a, b);
+            let flattened = IpcIncrementer::from_buffer_mut(buffer, a).unwrap();
+            flattened.value += 1;
+            (0, 0)
+        }),
+    );
+
+    let adder_server_connection = mock::IPC_MACHINE.lock().unwrap().add_server(adder_server);
+    let mut lendable_inc = inc.into_message();
+    println!("Value before: {}", lendable_inc.value);
+    lendable_inc.lend(adder_server_connection, 0);
+    println!("Value after: {}", lendable_inc.value);
+
+    // Mutably lend the value and make sure the server can change the original
+    println!("Value before mut: {}", lendable_inc.value);
+    lendable_inc.lend_mut(adder_server_connection, 0);
+    println!("Value after mut: {}", lendable_inc.value);
+
+    // Turn it back into the original value
+    let original_inc = lendable_inc.into_original();
+    println!("Original value: {}", original_inc.value);
 }
