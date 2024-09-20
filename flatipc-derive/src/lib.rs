@@ -60,7 +60,7 @@ fn derive_ipc_inner(
 
     let padded_version = generate_padded_version(&ast)?;
 
-    eprintln!("PADDED_VERSION: {}", padded_version);
+    // eprintln!("PADDED_VERSION: {}", padded_version);
 
     // IntoIterator::into_iter([try_from_bytes, from_zeros]).collect()
     // ts
