@@ -198,7 +198,7 @@ fn generate_transmittable_checks_enum(
     }
 
     Ok(quote! {
-        #[allow(non_snake_case)]
+        #[allow(non_snake_case, dead_code)]
         fn #surrounding_function () {
             pub fn ensure_is_transmittable<T: crate::IpcSafe>() {}
             #(#variants)*
@@ -233,7 +233,7 @@ fn generate_transmittable_checks_struct(
         }
     }
     Ok(quote! {
-        #[allow(non_snake_case)]
+        #[allow(non_snake_case, dead_code)]
         fn #surrounding_function () {
             pub fn ensure_is_transmittable<T: crate::IpcSafe>() {}
             #(#vetted_fields)*
@@ -279,51 +279,39 @@ fn generate_padded_version(
     Ok(quote! {
         #[repr(C, align(4096))]
         #visibility struct #padded_ident {
-            data: [u8; #padded_size],
+            original: #ident,
+            padding: [u8; #padding_size],
         }
 
         impl core::ops::Deref for #padded_ident {
             type Target = #ident ;
             fn deref(&self) -> &Self::Target {
-                unsafe {
-                    let inner_ptr =
-                        self.data.as_ptr() as *const [u8; core::mem::size_of::< #ident >()] as *const #ident;
-                    &*inner_ptr
-                }
+                &self.original
+                // unsafe {
+                //     let inner_ptr =
+                //         self.data.as_ptr() as *const [u8; core::mem::size_of::< #ident >()] as *const #ident;
+                //     &*inner_ptr
+                // }
             }
         }
 
         impl core::ops::DerefMut for #padded_ident {
             fn deref_mut(&mut self) -> &mut Self::Target {
-                unsafe {
-                    let inner_ptr =
-                        self.data.as_ptr() as *mut [u8; core::mem::size_of::< #ident >()] as *mut #ident ;
-                    &mut *inner_ptr
-                }
+                // unsafe {
+                //     let inner_ptr =
+                //         self.data.as_mut_ptr() as *mut [u8; core::mem::size_of::< #ident >()] as *mut #ident ;
+                //     &mut *inner_ptr
+                // }
+                &mut self.original
             }
         }
 
         impl crate::IntoIpc for #ident {
             type IpcType = #padded_ident;
             fn into_ipc(self) -> Self::IpcType {
-                let mut padded = #padded_ident {
-                    data: [0; #padded_size],
-                };
-                unsafe {
-                    let self_ptr = &self as *const #ident as *const [u8; #ident_size];
-                    padded.data[..#ident_size].copy_from_slice(&*self_ptr);
-                }
-                core::mem::forget(self);
-                padded
-            }
-        }
-
-        impl Drop for #padded_ident {
-            fn drop(&mut self) {
-                unsafe {
-                    let inner_ptr =
-                        self.data.as_ptr() as *mut [u8; core::mem::size_of::< #ident >()] as *mut #ident ;
-                    core::ptr::drop_in_place(inner_ptr);
+                #padded_ident {
+                    original: self,
+                    padding: [0; #padding_size],
                 }
             }
         }
@@ -332,7 +320,7 @@ fn generate_padded_version(
             type Original = #ident ;
 
             fn from_slice<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self> {
-                if (data.len() < core::mem::size_of::< #padded_ident >()) {
+                if data.len() < core::mem::size_of::< #padded_ident >() {
                     return None;
                 }
                 if signature as u32 != #hash {
@@ -346,46 +334,57 @@ fn generate_padded_version(
             }
 
             fn from_slice_mut<'a>(data: &'a mut [u8], signature: usize) -> Option<&'a mut Self> {
-                if (data.len() < core::mem::size_of::< #padded_ident >()) {
+                if data.len() < core::mem::size_of::< #padded_ident >() {
                     return None;
                 }
                 if signature as u32 != #hash {
                     return None;
                 }
-                unsafe { Some(&mut *(data.as_ptr() as *mut u8 as *mut #padded_ident)) }
+                unsafe { Some(&mut *(data.as_mut_ptr() as *mut u8 as *mut #padded_ident)) }
             }
 
             unsafe fn from_buffer_mut_unchecked<'a>(data: &'a mut [u8]) -> &'a mut Self {
-                unsafe { &mut *(data.as_ptr() as *mut u8 as *mut #padded_ident) }
+                unsafe { &mut *(data.as_mut_ptr() as *mut u8 as *mut #padded_ident) }
             }
 
             fn lend(&self, connection: usize, opcode: usize) {
-                crate::test::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, self.signature() as usize, 0, &self.data);
+                let signature = self.signature() as usize;
+                let data = unsafe {
+                    core::slice::from_raw_parts(
+                        self as *const #padded_ident as *const u8,
+                        core::mem::size_of::< #padded_ident >(),
+                    )
+                };
+                crate::test::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, signature, 0, &data);
             }
 
             fn lend_mut(&mut self, connection: usize, opcode: usize) {
-                crate::test::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, self.signature() as usize, 0, &mut self.data);
+                let signature = self.signature() as usize;
+                let mut data = unsafe {
+                    core::slice::from_raw_parts_mut(
+                        self as *mut #padded_ident as *mut u8,
+                        #padded_size,
+                    )
+                };
+                crate::test::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, signature, 0, &mut data);
             }
 
             fn as_original(&self) -> &Self::Original {
-                unsafe {
-                    &*(self.data[0.. #ident_size].as_ptr() as *const [u8; #ident_size] as *const #ident)
-                }
+                &self.original
             }
 
             fn as_original_mut(&mut self) -> &mut Self::Original {
-                unsafe {
-                    &mut *(self.data[0.. #ident_size].as_ptr() as *mut [u8; #ident_size] as *mut #ident)
-                }
+                &mut self.original
             }
 
             fn into_original(self) -> Self::Original {
-                let mut original = [0u8; #ident_size];
-                original.copy_from_slice(&self.data[0..#ident_size]);
-                core::mem::forget(self);
-                unsafe {
-                    core::mem::transmute(original)
-                }
+                // let mut original = [0u8; #ident_size];
+                // original.copy_from_slice(&self.data[0..#ident_size]);
+                // core::mem::forget(self);
+                // unsafe {
+                //     core::mem::transmute(original)
+                // }
+                self.original
             }
 
             fn signature(&self) -> u32 {

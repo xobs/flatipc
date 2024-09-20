@@ -80,5 +80,13 @@ pub trait IntoIpc {
     fn into_ipc(self) -> Self::IpcType;
 }
 
+// #[derive(flatipc_derive::Ipc, Default)]
+// #[repr(C)]
+// struct Sendable {
+//     a: u16,
+//     b: u32,
+//     c: u8,
+// }
+
 #[cfg(test)]
 mod test;
