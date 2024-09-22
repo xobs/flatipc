@@ -8,7 +8,7 @@ license = "BSD-2-Clause OR Apache-2.0 OR MIT"
 repository = "https://github.com/betrusted/xous-core"
 
 [dependencies]
-flatipc-derive = { path = "flatipc-derive" }
+flatipc-derive = { version = "0.1.0", path = "flatipc-derive" }
 xous = { version = "0.9", optional = true }
 
 [features]
