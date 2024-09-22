@@ -22,3 +22,7 @@ proc-macro = true
 proc-macro2 = "*"
 quote = "*"
 syn = { version = "2", features = ["parsing", "extra-traits"] }
+
+[features]
+xous = []
+default = []

@@ -28,9 +28,9 @@ fn derive_transmittable_inner(
         syn::Data::Union(r#union) => generate_transmittable_checks_union(&ast, r#union)?,
     };
     let result = quote! {
-            #transmittable_checks
+        #transmittable_checks
 
-            unsafe impl flatipc::IpcSafe for #ident {}
+        unsafe impl flatipc::IpcSafe for #ident {}
     };
 
     Ok(result)
@@ -231,6 +231,61 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
     let padding_size = quote! { #padded_size - #ident_size };
     let hash = ast_hash(ast);
 
+    let build_message = quote! {
+        use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
+        let mut buf = unsafe { MemoryRange::new(data.as_ptr() as usize, data.len()) }.unwrap();
+        let msg = MemoryMessage {
+            id: opcode,
+            buf,
+            offset: MemoryAddress::new(signature),
+            valid: None,
+        };
+    };
+
+    let lend = if cfg!(feature = "xous") {
+        quote! {
+            #build_message
+            xous::send_message(connection, xous::Message::MutableBorrow(msg))?;
+        }
+    } else {
+        quote! {
+            flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, signature, 0, &data);
+        }
+    };
+
+    let try_lend = if cfg!(feature = "xous") {
+        quote! {
+            #build_message
+            xous::try_send_message(connection, xous::Message::MutableBorrow(msg))?;
+        }
+    } else {
+        quote! {
+            flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, signature, 0, &data);
+        }
+    };
+
+    let lend_mut = if cfg!(feature = "xous") {
+        quote! {
+            #build_message
+            xous::send_message(connection, xous::Message::MutableBorrow(msg))?;
+        }
+    } else {
+        quote! {
+            flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, signature, 0, &mut data);
+        }
+    };
+
+    let try_lend_mut = if cfg!(feature = "xous") {
+        quote! {
+            #build_message
+            xous::try_send_message(connection, xous::Message::MutableBorrow(msg))?;
+        }
+    } else {
+        quote! {
+            flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, signature, 0, &mut data);
+        }
+    };
+
     Ok(quote! {
         #[repr(C, align(4096))]
         #visibility struct #padded_ident {
@@ -300,20 +355,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                         core::mem::size_of::< #padded_ident >(),
                     )
                 };
-                #[cfg(not(feature = "xous"))]
-                flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, signature, 0, &data);
-                #[cfg(feature = "xous")]
-                {
-                    use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
-                    let mut buf = unsafe { MemoryRange::new(data.as_ptr() as usize, data.len()) }.unwrap();
-                    let msg = MemoryMessage {
-                        id: opcode,
-                        buf,
-                        offset: MemoryAddress::new(signature),
-                        valid: None,
-                    };
-                    xous::send_message(connection, xous::Message::MutableBorrow(msg))?;
-                }
+                #lend
                 Ok(())
             }
 
@@ -325,20 +367,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                         core::mem::size_of::< #padded_ident >(),
                     )
                 };
-                #[cfg(not(feature = "xous"))]
-                flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, signature, 0, &data);
-                #[cfg(feature = "xous")]
-                {
-                    use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
-                    let mut buf = unsafe { MemoryRange::new(data.as_ptr() as usize, data.len()) }.unwrap();
-                    let msg = MemoryMessage {
-                        id: opcode,
-                        buf,
-                        offset: MemoryAddress::new(signature),
-                        valid: None,
-                    };
-                    xous::try_send_message(connection, xous::Message::MutableBorrow(msg))?;
-                }
+                #try_lend
                 Ok(())
             }
 
@@ -350,20 +379,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                         #padded_size,
                     )
                 };
-                #[cfg(not(feature = "xous"))]
-                flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, signature, 0, &mut data);
-                #[cfg(feature = "xous")]
-                {
-                    use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
-                    let mut buf = unsafe { MemoryRange::new(data.as_mut_ptr() as usize, data.len()) }.unwrap();
-                    let msg = MemoryMessage {
-                        id: opcode,
-                        buf,
-                        offset: MemoryAddress::new(signature),
-                        valid: None,
-                    };
-                    xous::send_message(connection, xous::Message::MutableBorrow(msg))?;
-                }
+                #lend_mut
                 Ok(())
             }
 
@@ -375,20 +391,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                         #padded_size,
                     )
                 };
-                #[cfg(not(feature = "xous"))]
-                flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, signature, 0, &mut data);
-                #[cfg(feature = "xous")]
-                {
-                    use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
-                    let mut buf = unsafe { MemoryRange::new(data.as_mut_ptr() as usize, data.len()) }.unwrap();
-                    let msg = MemoryMessage {
-                        id: opcode,
-                        buf,
-                        offset: MemoryAddress::new(signature),
-                        valid: None,
-                    };
-                    xous::try_send_message(connection, xous::Message::MutableBorrow(msg))?;
-                }
+                #try_lend_mut
                 Ok(())
             }
 

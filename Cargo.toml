@@ -12,5 +12,5 @@ flatipc-derive = { path = "flatipc-derive" }
 xous = { version = "*", optional = true }
 
 [features]
+xous = ["dep:xous", "flatipc-derive/xous"]
 default = ["xous"]
-xous = ["dep:xous"]
