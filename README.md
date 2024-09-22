@@ -9,7 +9,7 @@ Any type that is `Ipc` may be sent between processes. All members of the type mu
 ## Simple Example
 
 ```rust
-use flatipc_derive::Ipc;
+use flatipc::Ipc;
 
 #[derive(Ipc)]
 #[repr(C)]
@@ -43,7 +43,7 @@ the data and unblock the sender when it returns the message.
 Additionally, it is required that the type be `#[repr(C)]`. This ensures that it has a well-defined layout.
 
 ```rust
-#[derive(flatipc_derive::Ipc)]
+#[derive(flatipc::Ipc)]
 #[repr(C)]
 pub struct SimpleValue {
     inner: u32,
@@ -64,7 +64,7 @@ assert_eq!(ipc_value.inner, 43);
 Within the server, we can receive the IPC value and use it as if it were our own.
 
 ```rust
-#[derive(flatipc_derive::Ipc)]
+#[derive(flatipc::Ipc)]
 #[repr(C)]
 pub struct SimpleValue {
     inner: u32,
@@ -108,7 +108,7 @@ IPC types can be turned back into the Original type with `Deref` and `DerefMut`.
 use the IPC type as if it were the original type by adding `*`. For example:
 
 ```rust
-#[derive(flatipc_derive::Ipc, PartialEq, Debug)]
+#[derive(flatipc::Ipc, PartialEq, Debug)]
 #[repr(C)]
 struct Value(u32);
 let x = Value(42).into_ipc();
