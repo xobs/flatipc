@@ -1,12 +1,10 @@
-mod mock;
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, flatipc_derive::IpcSafe)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, flatipc::IpcSafe)]
 pub struct Point {
     pub x: i16,
     pub y: i16,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, flatipc_derive::IpcSafe)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, flatipc::IpcSafe)]
 pub enum PixelColor {
     #[default]
     Dark,
@@ -14,47 +12,23 @@ pub enum PixelColor {
 }
 
 impl From<bool> for PixelColor {
-    fn from(pc: bool) -> Self {
-        if pc {
-            PixelColor::Dark
-        } else {
-            PixelColor::Light
-        }
-    }
+    fn from(pc: bool) -> Self { if pc { PixelColor::Dark } else { PixelColor::Light } }
 }
 
 impl From<PixelColor> for bool {
-    fn from(pc: PixelColor) -> bool {
-        if pc == PixelColor::Dark {
-            true
-        } else {
-            false
-        }
-    }
+    fn from(pc: PixelColor) -> bool { if pc == PixelColor::Dark { true } else { false } }
 }
 
 impl From<usize> for PixelColor {
-    fn from(pc: usize) -> Self {
-        if pc == 0 {
-            PixelColor::Light
-        } else {
-            PixelColor::Dark
-        }
-    }
+    fn from(pc: usize) -> Self { if pc == 0 { PixelColor::Light } else { PixelColor::Dark } }
 }
 
 impl From<PixelColor> for usize {
-    fn from(pc: PixelColor) -> usize {
-        if pc == PixelColor::Light {
-            0
-        } else {
-            1
-        }
-    }
+    fn from(pc: PixelColor) -> usize { if pc == PixelColor::Light { 0 } else { 1 } }
 }
 
 /// Style properties for an object
-#[derive(Debug, Copy, Clone, Default, flatipc_derive::IpcSafe)]
+#[derive(Debug, Copy, Clone, Default, flatipc::IpcSafe)]
 pub struct DrawStyle {
     /// Fill colour of the object
     pub fill_color: Option<PixelColor>,
@@ -66,7 +40,7 @@ pub struct DrawStyle {
     pub stroke_width: i16,
 }
 
-#[derive(Debug, Clone, Copy, Default, flatipc_derive::IpcSafe)]
+#[derive(Debug, Clone, Copy, Default, flatipc::IpcSafe)]
 pub struct Rectangle {
     /// Top left point of the rect
     pub tl: Point,
@@ -79,7 +53,7 @@ pub struct Rectangle {
 }
 
 /// coordinates are local to the canvas, not absolute to the screen
-#[derive(Debug, Copy, Clone, flatipc_derive::IpcSafe)]
+#[derive(Debug, Copy, Clone, flatipc::IpcSafe)]
 pub enum TextBounds {
     // fixed width and height in a rectangle
     BoundingBox(Rectangle),
@@ -98,18 +72,16 @@ pub enum TextBounds {
 }
 
 impl Default for TextBounds {
-    fn default() -> Self {
-        TextBounds::BoundingBox(Rectangle::default())
-    }
+    fn default() -> Self { TextBounds::BoundingBox(Rectangle::default()) }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, flatipc_derive::IpcSafe)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, flatipc::IpcSafe)]
 pub struct Gid {
     /// a 128-bit random identifier for graphical objects
     pub gid: [u32; 4],
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Default, flatipc_derive::IpcSafe)]
+#[derive(Debug, Copy, Clone, PartialEq, Default, flatipc::IpcSafe)]
 /// operations that may be requested of a TextView when sent to GAM
 pub enum TextOp {
     #[default]
@@ -119,7 +91,7 @@ pub enum TextOp {
 }
 
 /// Style options for Latin script fonts
-#[derive(Copy, Clone, Debug, PartialEq, Default, flatipc_derive::IpcSafe)]
+#[derive(Copy, Clone, Debug, PartialEq, Default, flatipc::IpcSafe)]
 pub enum GlyphStyle {
     #[default]
     Small = 0,
@@ -133,19 +105,19 @@ pub enum GlyphStyle {
 }
 
 /// Point specifies a pixel coordinate
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Default, flatipc_derive::IpcSafe)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Default, flatipc::IpcSafe)]
 pub struct Pt {
     pub x: i16,
     pub y: i16,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Default, flatipc_derive::IpcSafe)]
+#[derive(Copy, Clone, Debug, PartialEq, Default, flatipc::IpcSafe)]
 pub struct Cursor {
     pub pt: Pt,
     pub line_height: usize,
 }
 
-#[derive(Clone, Debug, Default, flatipc_derive::Ipc)]
+#[derive(Clone, Debug, Default, flatipc::Ipc)]
 #[repr(C)]
 pub struct TextView {
     /// The operation as specified for the GAM. Note this is different from the "op" when sent to
@@ -202,12 +174,13 @@ pub struct TextView {
 
     /// this field tracks the state of a busy animation, if `Some`
     pub busy_animation_state: Option<u32>,
-    pub text: crate::String<3000>,
+    pub text: flatipc::String<3000>,
 }
 
-use crate::{IntoIpc, Ipc};
 #[test]
 fn textview_general_test() {
+    use flatipc::{IntoIpc, Ipc};
+
     // Create a TextView with the default settings
     let tv = TextView::default();
 
@@ -221,24 +194,19 @@ fn textview_general_test() {
 
     // Turn it back into the original value.
     let original_tv = tv_msg.into_original();
-    println!(
-        "Original textview draw_border: {}  text: {}",
-        original_tv.draw_border, original_tv.text
-    );
+    println!("Original textview draw_border: {}  text: {}", original_tv.draw_border, original_tv.text);
 }
 
 #[test]
 fn simple_ipc() {
-    #[derive(flatipc_derive::Ipc, Debug)]
+    #[derive(flatipc::Ipc, Debug)]
     #[repr(C)]
     pub enum SimpleIpc {
         Single(u32),
     }
 
     impl Default for SimpleIpc {
-        fn default() -> Self {
-            SimpleIpc::Single(0)
-        }
+        fn default() -> Self { SimpleIpc::Single(0) }
     }
 
     let simple_ipc = SimpleIpc::default();
@@ -248,7 +216,9 @@ fn simple_ipc() {
 
 #[test]
 fn server_test() {
-    #[derive(flatipc_derive::Ipc, Debug, PartialEq)]
+    use flatipc::{IntoIpc, Ipc};
+
+    #[derive(flatipc::Ipc, Debug, PartialEq)]
     #[repr(C)]
     struct Incrementer {
         value: u32,
@@ -256,7 +226,7 @@ fn server_test() {
 
     let inc = Incrementer { value: 42 };
 
-    let adder_server = mock::Server::new(
+    let adder_server = flatipc::backend::mock::Server::new(
         Box::new(|opcode, a, b, buffer| {
             let flattened = IpcIncrementer::from_slice(buffer, a).unwrap();
             println!(
@@ -273,28 +243,26 @@ fn server_test() {
         }),
     );
 
-    #[derive(flatipc_derive::Ipc, PartialEq, Debug)]
+    #[derive(flatipc::Ipc, PartialEq, Debug)]
     #[repr(C)]
     struct Value(u32);
     let x = Value(42).into_ipc();
     let y = Value(42);
     assert_eq!(*x, y);
 
-    let adder_server_connection = mock::IPC_MACHINE.lock().unwrap().add_server(adder_server);
+    let adder_server_connection =
+        flatipc::backend::mock::IPC_MACHINE.lock().unwrap().add_server(adder_server);
     let mut lendable_inc = inc.into_ipc();
     println!("Value before: {}", lendable_inc.value);
-    lendable_inc.lend(adder_server_connection, 0);
+    lendable_inc.lend(adder_server_connection, 0).unwrap();
     println!("Value after: {}", lendable_inc.value);
 
     // Mutably lend the value and make sure the server can change the original
     println!("Value before mut: {}", lendable_inc.value);
-    lendable_inc.lend_mut(adder_server_connection, 0);
+    lendable_inc.lend_mut(adder_server_connection, 0).unwrap();
     println!("Value after mut: {}", lendable_inc.value);
 
-    println!(
-        "Does lendable_inc equal inc? {}",
-        *lendable_inc == Incrementer { value: 43 }
-    );
+    println!("Does lendable_inc equal inc? {}", *lendable_inc == Incrementer { value: 43 });
 
     // Turn it back into the original value
     let original_inc = lendable_inc.into_original();

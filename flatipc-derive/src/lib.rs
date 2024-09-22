@@ -28,12 +28,11 @@ fn derive_transmittable_inner(
         syn::Data::Union(r#union) => generate_transmittable_checks_union(&ast, r#union)?,
     };
     let result = quote! {
-        #transmittable_checks
+            #transmittable_checks
 
-        unsafe impl crate::IpcSafe for #ident {}
+            unsafe impl flatipc::IpcSafe for #ident {}
     };
 
-    // eprintln!("TRANSMITTABLE: {}", result);
     Ok(result)
 }
 
@@ -43,28 +42,18 @@ pub fn derive_ipc(ts: TokenStream) -> TokenStream {
     derive_ipc_inner(ast).unwrap_or_else(|e| e).into()
 }
 
-fn derive_ipc_inner(
-    ast: DeriveInput,
-) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
-    // println!("AST: {:?}", ts);
+fn derive_ipc_inner(ast: DeriveInput) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     // Ensure the thing is using a repr we support.
     ensure_valid_repr(&ast)?;
 
-    // let try_from_bytes = derive_try_from_bytes_inner(&ast);
     let transmittable_checks = match &ast.data {
         syn::Data::Struct(r#struct) => generate_transmittable_checks_struct(&ast, r#struct)?,
         syn::Data::Enum(r#enum) => generate_transmittable_checks_enum(&ast, r#enum)?,
         syn::Data::Union(r#union) => generate_transmittable_checks_union(&ast, r#union)?,
     };
-    // eprintln!("TRANSMITTABLE_CHECKS: {}", transmittable_checks);
 
     let padded_version = generate_padded_version(&ast)?;
 
-    // eprintln!("PADDED_VERSION: {}", padded_version);
-
-    // IntoIterator::into_iter([try_from_bytes, from_zeros]).collect()
-    // ts
-    // TokenStream::new()
     Ok(quote! {
         #transmittable_checks
         #padded_version
@@ -78,22 +67,6 @@ fn ensure_valid_repr(ast: &DeriveInput) -> Result<(), proc_macro2::TokenStream> 
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("C") {
                     repr_c = true;
-                    // } else if meta.path.is_ident("align") {
-                    //     meta.parse_nested_meta(|v| {
-                    //         // println!("Align: has value");
-                    //         // Err(syn::Error::new(ast.span(), "Align must have a value"))
-                    //         Ok(())
-                    //     })
-                    //     .unwrap();
-                    //     // println!("Path: {:?}", meta.value());
-                    //     Ok(())
-                    //     // // let err: TokenStream =
-                    //     // Err(syn::Error::new(
-                    //     //     ast.span(),
-                    //     //     "XousIpc only supports repr(C) structs",
-                    //     // ))
-                    //     // // .into();
-                    //     // // err
                 }
                 Ok(())
             })
@@ -101,7 +74,8 @@ fn ensure_valid_repr(ast: &DeriveInput) -> Result<(), proc_macro2::TokenStream> 
         }
     }
     if !repr_c {
-        Err(syn::Error::new(ast.span(), "XousIpc only supports repr(C) structs").to_compile_error())
+        Err(syn::Error::new(ast.span(), "Structs must be marked as repr(C) to be IPC-safe")
+            .to_compile_error())
     } else {
         Ok(())
     }
@@ -128,11 +102,7 @@ fn type_to_string(ty: &syn::Type) -> String {
     }
 }
 
-fn ensure_type_exists_for(
-    ty: &syn::Type,
-) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
-    // eprintln!("Type: {}", type_to_string(ty));
-
+fn ensure_type_exists_for(ty: &syn::Type) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     match ty {
         syn::Type::Path(_) => {
             static ATOMIC_INDEX: AtomicUsize = AtomicUsize::new(0);
@@ -154,11 +124,8 @@ fn ensure_type_exists_for(
             })
         }
         syn::Type::Array(array) => ensure_type_exists_for(&array.elem),
-        _ => Err(syn::Error::new(
-            ty.span(),
-            format!("This type {} is unexpected", type_to_string(ty)),
-        )
-        .to_compile_error()),
+        _ => Err(syn::Error::new(ty.span(), format!("The type `{}` is unsupported", type_to_string(ty)))
+            .to_compile_error()),
     }
 }
 
@@ -171,16 +138,12 @@ fn generate_transmittable_checks_enum(
     let surrounding_function = format_ident!("ensure_members_are_transmittable_for_{}", ast.ident);
     for variant in &enm.variants {
         let fields = match &variant.fields {
-            syn::Fields::Named(fields) => fields
-                .named
-                .iter()
-                .map(|f| ensure_type_exists_for(&f.ty))
-                .collect(),
-            syn::Fields::Unnamed(fields) => fields
-                .unnamed
-                .iter()
-                .map(|f| ensure_type_exists_for(&f.ty))
-                .collect(),
+            syn::Fields::Named(fields) => {
+                fields.named.iter().map(|f| ensure_type_exists_for(&f.ty)).collect()
+            }
+            syn::Fields::Unnamed(fields) => {
+                fields.unnamed.iter().map(|f| ensure_type_exists_for(&f.ty)).collect()
+            }
             syn::Fields::Unit => Vec::new(),
         };
 
@@ -200,7 +163,7 @@ fn generate_transmittable_checks_enum(
     Ok(quote! {
         #[allow(non_snake_case, dead_code)]
         fn #surrounding_function () {
-            pub fn ensure_is_transmittable<T: crate::IpcSafe>() {}
+            pub fn ensure_is_transmittable<T: flatipc::IpcSafe>() {}
             #(#variants)*
         }
 
@@ -213,16 +176,10 @@ fn generate_transmittable_checks_struct(
 ) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     let surrounding_function = format_ident!("ensure_members_are_transmittable_for_{}", ast.ident);
     let fields = match &strct.fields {
-        syn::Fields::Named(fields) => fields
-            .named
-            .iter()
-            .map(|f| ensure_type_exists_for(&f.ty))
-            .collect(),
-        syn::Fields::Unnamed(fields) => fields
-            .unnamed
-            .iter()
-            .map(|f| ensure_type_exists_for(&f.ty))
-            .collect(),
+        syn::Fields::Named(fields) => fields.named.iter().map(|f| ensure_type_exists_for(&f.ty)).collect(),
+        syn::Fields::Unnamed(fields) => {
+            fields.unnamed.iter().map(|f| ensure_type_exists_for(&f.ty)).collect()
+        }
         syn::Fields::Unit => Vec::new(),
     };
     let mut vetted_fields = vec![];
@@ -235,7 +192,7 @@ fn generate_transmittable_checks_struct(
     Ok(quote! {
         #[allow(non_snake_case, dead_code)]
         fn #surrounding_function () {
-            pub fn ensure_is_transmittable<T: crate::IpcSafe>() {}
+            pub fn ensure_is_transmittable<T: flatipc::IpcSafe>() {}
             #(#vetted_fields)*
         }
     })
@@ -246,12 +203,8 @@ fn generate_transmittable_checks_union(
     unn: &syn::DataUnion,
 ) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     let surrounding_function = format_ident!("ensure_members_are_transmittable_for_{}", ast.ident);
-    let fields: Vec<Result<proc_macro2::TokenStream, proc_macro2::TokenStream>> = unn
-        .fields
-        .named
-        .iter()
-        .map(|f| ensure_type_exists_for(&f.ty))
-        .collect();
+    let fields: Vec<Result<proc_macro2::TokenStream, proc_macro2::TokenStream>> =
+        unn.fields.named.iter().map(|f| ensure_type_exists_for(&f.ty)).collect();
 
     let mut vetted_fields = vec![];
     for field in fields {
@@ -263,15 +216,13 @@ fn generate_transmittable_checks_union(
     Ok(quote! {
         #[allow(non_snake_case, dead_code)]
         fn #surrounding_function () {
-            pub fn ensure_is_transmittable<T: crate::IpcSafe>() {}
+            pub fn ensure_is_transmittable<T: flatipc::IpcSafe>() {}
             #(#vetted_fields)*
         }
     })
 }
 
-fn generate_padded_version(
-    ast: &DeriveInput,
-) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
+fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     let visibility = ast.vis.clone();
     let ident = ast.ident.clone();
     let padded_ident = format_ident!("Ipc{}", ast.ident);
@@ -300,7 +251,7 @@ fn generate_padded_version(
             }
         }
 
-        impl crate::IntoIpc for #ident {
+        impl flatipc::IntoIpc for #ident {
             type IpcType = #padded_ident;
             fn into_ipc(self) -> Self::IpcType {
                 #padded_ident {
@@ -310,7 +261,7 @@ fn generate_padded_version(
             }
         }
 
-        impl crate::Ipc for #padded_ident {
+        impl flatipc::Ipc for #padded_ident {
             type Original = #ident ;
 
             fn from_slice<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self> {
@@ -341,7 +292,7 @@ fn generate_padded_version(
                 unsafe { &mut *(data.as_mut_ptr() as *mut u8 as *mut #padded_ident) }
             }
 
-            fn lend(&self, connection: usize, opcode: usize) {
+            fn lend(&self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
                 let signature = self.signature() as usize;
                 let data = unsafe {
                     core::slice::from_raw_parts(
@@ -349,10 +300,49 @@ fn generate_padded_version(
                         core::mem::size_of::< #padded_ident >(),
                     )
                 };
-                crate::test::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, signature, 0, &data);
+                #[cfg(not(feature = "xous"))]
+                flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, signature, 0, &data);
+                #[cfg(feature = "xous")]
+                {
+                    use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
+                    let mut buf = unsafe { MemoryRange::new(data.as_ptr() as usize, data.len()) }.unwrap();
+                    let msg = MemoryMessage {
+                        id: opcode,
+                        buf,
+                        offset: MemoryAddress::new(signature),
+                        valid: None,
+                    };
+                    xous::send_message(connection, xous::Message::MutableBorrow(msg))?;
+                }
+                Ok(())
             }
 
-            fn lend_mut(&mut self, connection: usize, opcode: usize) {
+            fn try_lend(&self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
+                let signature = self.signature() as usize;
+                let data = unsafe {
+                    core::slice::from_raw_parts(
+                        self as *const #padded_ident as *const u8,
+                        core::mem::size_of::< #padded_ident >(),
+                    )
+                };
+                #[cfg(not(feature = "xous"))]
+                flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend(connection, opcode, signature, 0, &data);
+                #[cfg(feature = "xous")]
+                {
+                    use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
+                    let mut buf = unsafe { MemoryRange::new(data.as_ptr() as usize, data.len()) }.unwrap();
+                    let msg = MemoryMessage {
+                        id: opcode,
+                        buf,
+                        offset: MemoryAddress::new(signature),
+                        valid: None,
+                    };
+                    xous::try_send_message(connection, xous::Message::MutableBorrow(msg))?;
+                }
+                Ok(())
+            }
+
+            fn lend_mut(&mut self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
                 let signature = self.signature() as usize;
                 let mut data = unsafe {
                     core::slice::from_raw_parts_mut(
@@ -360,7 +350,46 @@ fn generate_padded_version(
                         #padded_size,
                     )
                 };
-                crate::test::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, signature, 0, &mut data);
+                #[cfg(not(feature = "xous"))]
+                flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, signature, 0, &mut data);
+                #[cfg(feature = "xous")]
+                {
+                    use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
+                    let mut buf = unsafe { MemoryRange::new(data.as_mut_ptr() as usize, data.len()) }.unwrap();
+                    let msg = MemoryMessage {
+                        id: opcode,
+                        buf,
+                        offset: MemoryAddress::new(signature),
+                        valid: None,
+                    };
+                    xous::send_message(connection, xous::Message::MutableBorrow(msg))?;
+                }
+                Ok(())
+            }
+
+            fn try_lend_mut(&mut self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
+                let signature = self.signature() as usize;
+                let mut data = unsafe {
+                    core::slice::from_raw_parts_mut(
+                        self as *mut #padded_ident as *mut u8,
+                        #padded_size,
+                    )
+                };
+                #[cfg(not(feature = "xous"))]
+                flatipc::backend::mock::IPC_MACHINE.lock().unwrap().lend_mut(connection, opcode, signature, 0, &mut data);
+                #[cfg(feature = "xous")]
+                {
+                    use xous::definitions::{MemoryMessage, MemoryAddress, MemoryRange};
+                    let mut buf = unsafe { MemoryRange::new(data.as_mut_ptr() as usize, data.len()) }.unwrap();
+                    let msg = MemoryMessage {
+                        id: opcode,
+                        buf,
+                        offset: MemoryAddress::new(signature),
+                        valid: None,
+                    };
+                    xous::try_send_message(connection, xous::Message::MutableBorrow(msg))?;
+                }
+                Ok(())
             }
 
             fn as_original(&self) -> &Self::Original {

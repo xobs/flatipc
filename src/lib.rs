@@ -4,6 +4,27 @@
 /// the correct object arrives on the other side.
 pub unsafe trait IpcSafe {}
 
+extern crate self as flatipc;
+
+pub use flatipc_derive::{Ipc, IpcSafe};
+#[cfg(feature = "xous")]
+mod backend {
+    pub use xous::Error;
+    pub use xous::CID;
+}
+#[cfg(not(feature = "xous"))]
+mod backend {
+    pub mod mock;
+    pub use mock::CID;
+
+    #[derive(Debug)]
+    pub enum Error {
+        Unimplemented,
+    }
+}
+
+pub use backend::{Error, CID};
+
 pub mod string;
 pub use string::String;
 
@@ -66,9 +87,20 @@ pub trait Ipc {
     /// Consume the memory version and return the original object.
     fn into_original(self) -> Self::Original;
 
-    fn lend(&self, connection: usize, opcode: usize);
+    /// Lend the buffer to the specified server.
+    fn lend(&self, connection: CID, opcode: usize) -> Result<(), backend::Error>;
 
-    fn lend_mut(&mut self, connection: usize, opcode: usize);
+    /// Try to lend the buffer to the specified server, returning an error
+    /// if the lend failed.
+    fn try_lend(&self, connection: CID, opcode: usize) -> Result<(), backend::Error>;
+
+    /// Lend the buffer to the specified server, and allow the server to
+    /// modify the buffer.
+    fn lend_mut(&mut self, connection: CID, opcode: usize) -> Result<(), backend::Error>;
+
+    /// Lend the buffer to the specified server, and allow the server to
+    /// modify the buffer. Return an error if the lend failed.
+    fn try_lend_mut(&mut self, connection: CID, opcode: usize) -> Result<(), backend::Error>;
 
     /// Return the signature of this memory message. Useful for verifying
     /// that the correct message is being received.
@@ -79,14 +111,6 @@ pub trait IntoIpc {
     type IpcType;
     fn into_ipc(self) -> Self::IpcType;
 }
-
-// #[derive(flatipc_derive::Ipc, Default)]
-// #[repr(C)]
-// struct Sendable {
-//     a: u16,
-//     b: u32,
-//     c: u8,
-// }
 
 #[cfg(test)]
 mod test;
