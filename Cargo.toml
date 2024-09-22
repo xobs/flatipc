@@ -9,7 +9,7 @@ repository = "https://github.com/betrusted/xous-core"
 
 [dependencies]
 flatipc-derive = { path = "flatipc-derive" }
-xous = { version = "*", optional = true }
+xous = { version = "0.9", optional = true }
 
 [features]
 xous = ["dep:xous", "flatipc-derive/xous"]
