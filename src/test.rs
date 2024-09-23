@@ -12,43 +12,19 @@ pub enum PixelColor {
 }
 
 impl From<bool> for PixelColor {
-    fn from(pc: bool) -> Self {
-        if pc {
-            PixelColor::Dark
-        } else {
-            PixelColor::Light
-        }
-    }
+    fn from(pc: bool) -> Self { if pc { PixelColor::Dark } else { PixelColor::Light } }
 }
 
 impl From<PixelColor> for bool {
-    fn from(pc: PixelColor) -> bool {
-        if pc == PixelColor::Dark {
-            true
-        } else {
-            false
-        }
-    }
+    fn from(pc: PixelColor) -> bool { if pc == PixelColor::Dark { true } else { false } }
 }
 
 impl From<usize> for PixelColor {
-    fn from(pc: usize) -> Self {
-        if pc == 0 {
-            PixelColor::Light
-        } else {
-            PixelColor::Dark
-        }
-    }
+    fn from(pc: usize) -> Self { if pc == 0 { PixelColor::Light } else { PixelColor::Dark } }
 }
 
 impl From<PixelColor> for usize {
-    fn from(pc: PixelColor) -> usize {
-        if pc == PixelColor::Light {
-            0
-        } else {
-            1
-        }
-    }
+    fn from(pc: PixelColor) -> usize { if pc == PixelColor::Light { 0 } else { 1 } }
 }
 
 /// Style properties for an object
@@ -96,9 +72,7 @@ pub enum TextBounds {
 }
 
 impl Default for TextBounds {
-    fn default() -> Self {
-        TextBounds::BoundingBox(Rectangle::default())
-    }
+    fn default() -> Self { TextBounds::BoundingBox(Rectangle::default()) }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, flatipc::IpcSafe)]
@@ -220,10 +194,7 @@ fn textview_general_test() {
 
     // Turn it back into the original value.
     let original_tv = tv_msg.into_original();
-    println!(
-        "Original textview draw_border: {}  text: {}",
-        original_tv.draw_border, original_tv.text
-    );
+    println!("Original textview draw_border: {}  text: {}", original_tv.draw_border, original_tv.text);
 }
 
 #[test]
@@ -235,9 +206,7 @@ fn simple_ipc() {
     }
 
     impl Default for SimpleIpc {
-        fn default() -> Self {
-            SimpleIpc::Single(0)
-        }
+        fn default() -> Self { SimpleIpc::Single(0) }
     }
 
     let simple_ipc = SimpleIpc::default();
@@ -281,10 +250,8 @@ fn server_test() {
     let y = Value(42);
     assert_eq!(*x, y);
 
-    let adder_server_connection = flatipc::backend::mock::IPC_MACHINE
-        .lock()
-        .unwrap()
-        .add_server(adder_server);
+    let adder_server_connection =
+        flatipc::backend::mock::IPC_MACHINE.lock().unwrap().add_server(adder_server);
     let mut lendable_inc = inc.into_ipc();
     println!("Value before: {}", lendable_inc.value);
     lendable_inc.lend(adder_server_connection, 0).unwrap();
@@ -295,10 +262,7 @@ fn server_test() {
     lendable_inc.lend_mut(adder_server_connection, 0).unwrap();
     println!("Value after mut: {}", lendable_inc.value);
 
-    println!(
-        "Does lendable_inc equal inc? {}",
-        *lendable_inc == Incrementer { value: 43 }
-    );
+    println!("Does lendable_inc equal inc? {}", *lendable_inc == Incrementer { value: 43 });
 
     // Turn it back into the original value
     let original_inc = lendable_inc.into_original();

@@ -9,8 +9,8 @@ extern crate self as flatipc;
 pub use flatipc_derive::{Ipc, IpcSafe};
 #[cfg(feature = "xous")]
 mod backend {
-    pub use xous::Error;
     pub use xous::CID;
+    pub use xous::Error;
 }
 #[cfg(not(feature = "xous"))]
 mod backend {
@@ -23,7 +23,7 @@ mod backend {
     }
 }
 
-pub use backend::{Error, CID};
+pub use backend::{CID, Error};
 
 pub mod string;
 pub use string::String;

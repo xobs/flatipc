@@ -55,13 +55,9 @@ impl<T, const N: usize> Vec<T, N> {
         self.length = 0;
     }
 
-    pub fn iter(&self) -> core::slice::Iter<'_, T> {
-        self.as_slice().iter()
-    }
+    pub fn iter(&self) -> core::slice::Iter<'_, T> { self.as_slice().iter() }
 
-    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, T> {
-        self.as_mut_slice().iter_mut()
-    }
+    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, T> { self.as_mut_slice().iter_mut() }
 
     pub fn resize(&mut self, new_len: usize, value: T)
     where
@@ -79,9 +75,7 @@ impl<T, const N: usize> Vec<T, N> {
 }
 
 impl<T, const N: usize> Drop for Vec<T, N> {
-    fn drop(&mut self) {
-        self.clear();
-    }
+    fn drop(&mut self) { self.clear(); }
 }
 
 impl<T, const N: usize> core::fmt::Debug for Vec<T, N>
@@ -94,23 +88,17 @@ where
 }
 
 impl<T, const N: usize> Default for Vec<T, N> {
-    fn default() -> Self {
-        Vec::new()
-    }
+    fn default() -> Self { Vec::new() }
 }
 
 impl<T, const N: usize> core::ops::Deref for Vec<T, N> {
     type Target = [T];
 
-    fn deref(&self) -> &Self::Target {
-        self.as_slice()
-    }
+    fn deref(&self) -> &Self::Target { self.as_slice() }
 }
 
 impl<T, const N: usize> core::ops::DerefMut for Vec<T, N> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_mut_slice()
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { self.as_mut_slice() }
 }
 
 impl<T, const N: usize> From<&[T]> for Vec<T, N>
@@ -157,13 +145,9 @@ where
 impl<T, const N: usize> core::ops::Index<usize> for Vec<T, N> {
     type Output = T;
 
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.as_slice()[index]
-    }
+    fn index(&self, index: usize) -> &Self::Output { &self.as_slice()[index] }
 }
 
 impl<T, const N: usize> core::ops::IndexMut<usize> for Vec<T, N> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.as_mut_slice()[index]
-    }
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output { &mut self.as_mut_slice()[index] }
 }

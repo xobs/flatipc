@@ -21,15 +21,10 @@ pub struct IpcMachine {
     servers: Vec<Server>,
 }
 
-pub(crate) static IPC_MACHINE: LazyLock<Mutex<IpcMachine>> =
-    LazyLock::new(|| Mutex::new(IpcMachine::new()));
+pub(crate) static IPC_MACHINE: LazyLock<Mutex<IpcMachine>> = LazyLock::new(|| Mutex::new(IpcMachine::new()));
 
 impl IpcMachine {
-    fn new() -> Self {
-        IpcMachine {
-            servers: Vec::new(),
-        }
-    }
+    fn new() -> Self { IpcMachine { servers: Vec::new() } }
 
     pub fn add_server(&mut self, server: Server) -> CID {
         let server_id = self.servers.len() as CID;
