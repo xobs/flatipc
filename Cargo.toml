@@ -1,6 +1,6 @@
 [package]
 name = "flatipc"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Sean Cross <sean@xobs.io>"]
 description = "Zerocopy IPC between Xous clients and servers"
@@ -8,7 +8,7 @@ license = "BSD-2-Clause OR Apache-2.0 OR MIT"
 repository = "https://github.com/betrusted/xous-core"
 
 [dependencies]
-flatipc-derive = { version = "0.1.0", path = "flatipc-derive" }
+flatipc-derive = { version = "0.1.2", path = "flatipc-derive" }
 xous = { version = "0.9", optional = true }
 
 [features]
