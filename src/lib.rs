@@ -92,22 +92,16 @@
 //! let mut msg_opt = None;
 //! let mut server = xous::create_server_with_sid(b"example---server").unwrap();
 //! loop {
-//!     let envelope = xous::receive_message(server, &mut msg_opt).unwrap();
+//!     let envelope = xous::reply_and_receive_next(server, &mut msg_opt).unwrap();
 //!     let Some(msg) = msg_opt else { continue };
 //!
 //!     // Take the memory portion of the message, continuing if it's not a memory message.
 //!     let Some(msg_memory) = msg.memory_message() else { continue };
 //!
-//!     // We must use `unsafe` here to gain access to the memory as a `u8` slice.
-//!     let msg_slice = unsafe { msg_memory.buf().as_slice() };
-//!
-//!     // The signature is stored in the `offset` field.
-//!     let signature = msg_memory.offset.map(|offset| offset.get()).unwrap_or_default();
-//!
-//!     // Note that we need to use the `IpcFoo` variant to access the object.
-//!     // If the object is not the correct type, `None` will be returned and
-//!     // the message will be returned.
-//!     let Some(foo) = IpcFoo::from_slice_mut(msg_slice, signature) else { continue };
+//!     // Turn the `MemoryMessage` into an `IpcFoo` object. Note that this is the `Ipc`-prefixed
+//!     // version of the original object. If the object is not the correct type, `None` will be
+//!     // returned and the message will be returned to the sender in ghe next loop.
+//!     let Some(foo) = IpcFoo::from_memory_message(msg_slice, signature) else { continue };
 //!
 //!     // Do something with the object.
 //! }
@@ -174,8 +168,12 @@ where
 {
 }
 
+/// An object that can be sent across an IPC boundary, and can be reconstituted
+/// on the other side without copying. An object with this trait must be page-aligned,
+/// must be a multiple of the page size in length, and must not contain any pointers.
 pub unsafe trait Ipc {
-    /// What this memory message is a representation of.
+    /// What this memory message is a representation of. This is used to turn
+    /// this object back into the original object.
     type Original;
 
     /// Create an Ipc variant from the original object. Succeeds only if
@@ -205,7 +203,8 @@ pub unsafe trait Ipc {
     /// Consume the memory version and return the original object.
     fn into_original(self) -> Self::Original;
 
-    /// Lend the buffer to the specified server.
+    /// Lend the buffer to the specified server. The connection should already be
+    /// open and the server should be ready to receive the buffer.
     fn lend(&self, connection: CID, opcode: usize) -> Result<(), backend::Error>;
 
     /// Try to lend the buffer to the specified server, returning an error
@@ -225,14 +224,20 @@ pub unsafe trait Ipc {
     fn signature(&self) -> usize;
 
     #[cfg(feature = "xous")]
-    /// Convert a `xous::MemoryMessage` into an IPC object.
-    fn from_memory_message<'a>(msg: &'a xous::MemoryMessage) -> Option<&'a mut Self>;
+    /// Build an `Ipc` object from a `xous::MemoryMessage`. Verifies the signature and
+    /// returns `None` if there is no match.
+    fn from_memory_message<'a>(msg: &'a xous::MemoryMessage) -> Option<&'a Self>;
 
     #[cfg(feature = "xous")]
-    /// Convert an IPC object into a `xous::MemoryMessage`.
+    /// Build a mutable `Ipc` object from a mutable `xous::MemoryMessage`. Verifies the
+    /// signature and returns `None` if there is no match. The returned object has a
+    /// lifetime that's tied to the `MemoryMessage`.
     fn from_memory_message_mut<'a>(msg: &'a mut xous::MemoryMessage) -> Option<&'a mut Self>;
 }
 
+/// Objects that have `IntoIpc` may be turned into an object that can be passed
+/// across an IPC barrier. This consumes the object and returns a new object that
+/// may be dereferenced to the original object.
 pub trait IntoIpc {
     type IpcType;
     fn into_ipc(self) -> Self::IpcType;

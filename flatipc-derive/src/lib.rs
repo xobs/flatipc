@@ -62,11 +62,10 @@ fn derive_ipc_inner(ast: DeriveInput) -> Result<proc_macro2::TokenStream, proc_m
         syn::Data::Union(r#union) => generate_transmittable_checks_union(&ast, r#union)?,
     };
 
-    let padded_version = generate_padded_version(&ast)?;
-
+    let ipc_struct = generate_ipc_struct(&ast)?;
     Ok(quote! {
         #transmittable_checks
-        #padded_version
+        #ipc_struct
     })
 }
 
@@ -232,10 +231,10 @@ fn generate_transmittable_checks_union(
     })
 }
 
-fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
+fn generate_ipc_struct(ast: &DeriveInput) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     let visibility = ast.vis.clone();
     let ident = ast.ident.clone();
-    let padded_ident = format_ident!("Ipc{}", ast.ident);
+    let ipc_ident = format_ident!("Ipc{}", ast.ident);
     let ident_size = quote! { core::mem::size_of::< #ident >() };
     let padded_size = quote! { (#ident_size + (4096 - 1)) & !(4096 - 1) };
     let padding_size = quote! { #padded_size - #ident_size };
@@ -296,73 +295,101 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
         }
     };
 
+    let memory_messages = if cfg!(feature = "xous") {
+        quote! {
+            fn from_memory_message<'a>(msg: &'a xous::MemoryMessage) -> Option<&'a Self> {
+                if msg.buf.len() < core::mem::size_of::< #ipc_ident >() {
+                    return None;
+                }
+                let signature = msg.offset.map(|offset| offset.get()).unwrap_or_default();
+                if signature != #hash {
+                    return None;
+                }
+                unsafe { Some(&*(msg.buf.as_ptr() as *const #ipc_ident)) }
+            }
+
+            fn from_memory_message_mut<'a>(msg: &'a mut xous::MemoryMessage) -> Option<&'a mut Self> {
+                if msg.buf.len() < core::mem::size_of::< #ipc_ident >() {
+                    return None;
+                }
+                let signature = msg.offset.map(|offset| offset.get()).unwrap_or_default();
+                if signature != #hash {
+                    return None;
+                }
+                unsafe { Some(&mut *(msg.buf.as_mut_ptr() as *mut #ipc_ident)) }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     Ok(quote! {
         #[repr(C, align(4096))]
-        #visibility struct #padded_ident {
+        #visibility struct #ipc_ident {
             original: #ident,
             padding: [u8; #padding_size],
         }
 
-        impl core::ops::Deref for #padded_ident {
+        impl core::ops::Deref for #ipc_ident {
             type Target = #ident ;
             fn deref(&self) -> &Self::Target {
                 &self.original
             }
         }
 
-        impl core::ops::DerefMut for #padded_ident {
+        impl core::ops::DerefMut for #ipc_ident {
             fn deref_mut(&mut self) -> &mut Self::Target {
                 &mut self.original
             }
         }
 
         impl flatipc::IntoIpc for #ident {
-            type IpcType = #padded_ident;
+            type IpcType = #ipc_ident;
             fn into_ipc(self) -> Self::IpcType {
-                #padded_ident {
+                #ipc_ident {
                     original: self,
                     padding: [0; #padding_size],
                 }
             }
         }
 
-        unsafe impl flatipc::Ipc for #padded_ident {
+        unsafe impl flatipc::Ipc for #ipc_ident {
             type Original = #ident ;
 
             fn from_slice<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self> {
-                if data.len() < core::mem::size_of::< #padded_ident >() {
+                if data.len() < core::mem::size_of::< #ipc_ident >() {
                     return None;
                 }
                 if signature != #hash {
                     return None;
                 }
-                unsafe { Some(&*(data.as_ptr() as *const u8 as *const #padded_ident)) }
+                unsafe { Some(&*(data.as_ptr() as *const u8 as *const #ipc_ident)) }
             }
 
             unsafe fn from_buffer_unchecked<'a>(data: &'a [u8]) -> &'a Self {
-                &*(data.as_ptr() as *const u8 as *const #padded_ident)
+                &*(data.as_ptr() as *const u8 as *const #ipc_ident)
             }
 
             fn from_slice_mut<'a>(data: &'a mut [u8], signature: usize) -> Option<&'a mut Self> {
-                if data.len() < core::mem::size_of::< #padded_ident >() {
+                if data.len() < core::mem::size_of::< #ipc_ident >() {
                     return None;
                 }
                 if signature != #hash {
                     return None;
                 }
-                unsafe { Some(&mut *(data.as_mut_ptr() as *mut u8 as *mut #padded_ident)) }
+                unsafe { Some(&mut *(data.as_mut_ptr() as *mut u8 as *mut #ipc_ident)) }
             }
 
             unsafe fn from_buffer_mut_unchecked<'a>(data: &'a mut [u8]) -> &'a mut Self {
-                unsafe { &mut *(data.as_mut_ptr() as *mut u8 as *mut #padded_ident) }
+                unsafe { &mut *(data.as_mut_ptr() as *mut u8 as *mut #ipc_ident) }
             }
 
             fn lend(&self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
                 let signature = self.signature();
                 let data = unsafe {
                     core::slice::from_raw_parts(
-                        self as *const #padded_ident as *const u8,
-                        core::mem::size_of::< #padded_ident >(),
+                        self as *const #ipc_ident as *const u8,
+                        core::mem::size_of::< #ipc_ident >(),
                     )
                 };
                 #lend
@@ -373,8 +400,8 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                 let signature = self.signature();
                 let data = unsafe {
                     core::slice::from_raw_parts(
-                        self as *const #padded_ident as *const u8,
-                        core::mem::size_of::< #padded_ident >(),
+                        self as *const #ipc_ident as *const u8,
+                        core::mem::size_of::< #ipc_ident >(),
                     )
                 };
                 #try_lend
@@ -385,7 +412,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                 let signature = self.signature();
                 let mut data = unsafe {
                     core::slice::from_raw_parts_mut(
-                        self as *mut #padded_ident as *mut u8,
+                        self as *mut #ipc_ident as *mut u8,
                         #padded_size,
                     )
                 };
@@ -397,7 +424,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                 let signature = self.signature();
                 let mut data = unsafe {
                     core::slice::from_raw_parts_mut(
-                        self as *mut #padded_ident as *mut u8,
+                        self as *mut #ipc_ident as *mut u8,
                         #padded_size,
                     )
                 };
@@ -420,6 +447,8 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
             fn signature(&self) -> usize {
                 #hash
             }
+
+            #memory_messages
         }
     })
 }
