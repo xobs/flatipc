@@ -75,7 +75,7 @@ while connection.receive(&mut message).is_ok() {;
     let message = message.unwrap();
     match message.opcode {
         0x1234 => {
-            let Some(value) = IpcSimpleValue::from_ipc_mut(&mut message.data, message.signature) else {
+            let Some(value) = IpcSimpleValue::from_slice_mut(&mut message.data, message.signature) else {
                 continue;
             }
             println!("The value is {}", value.inner);
@@ -118,3 +118,12 @@ let y = Value(42);
 // compare it to `y` using the `PartialEq` trait.
 assert_eq!(*x, y);
 ```
+
+## Type Checking
+
+A hash of the original type is stored in the IPC type. This is used to ensure that the IPC type is
+converted back into the original type. If the hash does not match, the conversion will fail.
+
+The hash of the type must be passed across the IPC boundary. This is done by storing the `signature`
+in the `offset` field, which is the first field passed to the server. This value must be passed to
+the `from_slice()` or `from_slice_mut()` call to ensure that the type is correctly reconstituted.

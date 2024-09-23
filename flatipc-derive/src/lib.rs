@@ -4,12 +4,22 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, spanned::Spanned, DeriveInput};
 
-fn ast_hash(ast: &syn::DeriveInput) -> u32 {
+fn ast_hash(ast: &syn::DeriveInput) -> usize {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     ast.hash(&mut hasher);
     let full_hash = hasher.finish();
-    ((full_hash >> 32) as u32) ^ (full_hash as u32)
+
+    #[cfg(target_pointer_width = "64")]
+    {
+        full_hash as usize
+    }
+    #[cfg(target_pointer_width = "32")]
+    {
+        (((full_hash >> 32) as u32) ^ (full_hash as u32)) as usize
+    }
+    #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
+    compile_error!("Unsupported target_pointer_width");
 }
 
 #[proc_macro_derive(IpcSafe)]
@@ -316,14 +326,14 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
             }
         }
 
-        impl flatipc::Ipc for #padded_ident {
+        unsafe impl flatipc::Ipc for #padded_ident {
             type Original = #ident ;
 
             fn from_slice<'a>(data: &'a [u8], signature: usize) -> Option<&'a Self> {
                 if data.len() < core::mem::size_of::< #padded_ident >() {
                     return None;
                 }
-                if signature as u32 != #hash {
+                if signature != #hash {
                     return None;
                 }
                 unsafe { Some(&*(data.as_ptr() as *const u8 as *const #padded_ident)) }
@@ -337,7 +347,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                 if data.len() < core::mem::size_of::< #padded_ident >() {
                     return None;
                 }
-                if signature as u32 != #hash {
+                if signature != #hash {
                     return None;
                 }
                 unsafe { Some(&mut *(data.as_mut_ptr() as *mut u8 as *mut #padded_ident)) }
@@ -348,7 +358,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
             }
 
             fn lend(&self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
-                let signature = self.signature() as usize;
+                let signature = self.signature();
                 let data = unsafe {
                     core::slice::from_raw_parts(
                         self as *const #padded_ident as *const u8,
@@ -360,7 +370,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
             }
 
             fn try_lend(&self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
-                let signature = self.signature() as usize;
+                let signature = self.signature();
                 let data = unsafe {
                     core::slice::from_raw_parts(
                         self as *const #padded_ident as *const u8,
@@ -372,7 +382,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
             }
 
             fn lend_mut(&mut self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
-                let signature = self.signature() as usize;
+                let signature = self.signature();
                 let mut data = unsafe {
                     core::slice::from_raw_parts_mut(
                         self as *mut #padded_ident as *mut u8,
@@ -384,7 +394,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
             }
 
             fn try_lend_mut(&mut self, connection: flatipc::CID, opcode: usize) -> Result<(), flatipc::Error> {
-                let signature = self.signature() as usize;
+                let signature = self.signature();
                 let mut data = unsafe {
                     core::slice::from_raw_parts_mut(
                         self as *mut #padded_ident as *mut u8,
@@ -407,7 +417,7 @@ fn generate_padded_version(ast: &DeriveInput) -> Result<proc_macro2::TokenStream
                 self.original
             }
 
-            fn signature(&self) -> u32 {
+            fn signature(&self) -> usize {
                 #hash
             }
         }

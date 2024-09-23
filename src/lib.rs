@@ -1,17 +1,135 @@
+//! Xous supports sending Messages from Clients to Servers. If a message is
+//! a `MemoryMessage`, then the Server may respond by updating the buffer
+//! with a response message and returning the buffer.
+//!
+//! A number of serialization options are available, ranging from sending
+//! raw arrays of bytes all the way to sending full Protobuf messages.
+//!
+//! This crate takes a middle road and allows for sending rich Rust types
+//! such as full enums and structs without doing extensive checks. This is
+//! based on the theory that in normal operating systems, ABIs do not contain
+//! any sort of verification, and it is undefined behaviour to send a malformed
+//! request to a loaded module.
+//!
+//! An object can be made into an IPC object by implementing the `Ipc` trait.
+//! The primary method of doing this is by adding `#[derive(flatipc::Ipc)]`
+//! to the definition. Such an object may be included in both the Client and
+//! the Server so that they share the same view of the object.
+//!
+//! Any object may be made into an IPC object provided it follows the following
+//! requirements:
+//!
+//! - **The object is `#[repr(C)]`** - This is required to ensure the objecty
+//!   has a well-defined layout in memory. Other representations may shift
+//!   depending on optimizations.
+//! - **The object only contains fields that are `IpcSafe`** - This trait is
+//!   implemented on primitive types that are able to be sent across an IPC
+//!   boundary. This includes all integers, floats, and booleans. It also
+//!   includes arrays of `IpcSafe` types, `Option<T>` where `T` is `IpcSafe`,
+//!   and `Result<T, E>` where `T` and `E` are `IpcSafe`. Pointers and
+//!   references are not `IpcSafe` and may not be used.
+//!
+//! When deriving `Ipc`, a new type will be created with the same name as
+//! the original type prefixed with `Ipc`. For example, if you derive `Ipc`
+//! on a type named `Foo`, the new type will be named `IpcFoo`.
+//!
+//! Objects that implement `Ipc` must be page-aligned and must be a full multiple
+//! of a page size in length. This is to ensure that the object can be mapped
+//! transparently between the Client and the Server without dragging any extra
+//! memory along with it.
+//!
+//! `Ipc` objects implement `Deref` and `DerefMut` to the original object, so
+//! they can be used in place of the original object in most cases by derefencing
+//! the `Ipc` object.
+//!
+//! Because `String` and `Vec` contain pointers, they are not `IpcSafe`. As such,
+//! replacements are made available in this crate that are `IpcSafe`.
+//!
+//! <br>
+//!
+//! # Example of a Derived Ipc Object
+//!
+//! ```ignore
+//! #[repr(C)]
+//! #[derive(flatipc::Ipc)]
+//! pub struct Foo {
+//!   a: u32,
+//!   b: u64,
+//! }
+//!
+//! // Connect to an example server
+//! let conn = xous::connect(xous::SID::from_bytes(b"example---server").unwrap())?;
+//!
+//! // Construct our object
+//! let foo = Foo { a: 1, b: 1234567890 };
+//!
+//! // Create an IPC representation of the original object, consuming
+//! // the original object in the process.
+//! let mut foo_ipc = foo.into_ipc();
+//!
+//! // Lend the object to the server with opcode 42.
+//! foo_ipc.lend(conn, 42)?;
+//!
+//! // Note that we can still access the original object.
+//! println!("a: {}", foo_ipc.a);
+//!
+//! // When we're done with the IPC object, we can get the original object back.
+//! let foo = foo_ipc.into_original();
+//! ```
+//!
+//! # Example of Server Usage
+//!
+//! ```ignore
+//! // Ideally this comes from a common `API` file that both the
+//! // client and server share.
+//! #[repr(C)]
+//! #[derive(flatipc::Ipc)]
+//! pub struct Foo {
+//!   a: u32,
+//!   b: u64,
+//! }
+//!
+//! let mut msg_opt = None;
+//! let mut server = xous::create_server_with_sid(b"example---server").unwrap();
+//! loop {
+//!     let envelope = xous::receive_message(server, &mut msg_opt).unwrap();
+//!     let Some(msg) = msg_opt else { continue };
+//!
+//!     // Take the memory portion of the message, continuing if it's not a memory message.
+//!     let Some(msg_memory) = msg.memory_message() else { continue };
+//!
+//!     // We must use `unsafe` here to gain access to the memory as a `u8` slice.
+//!     let msg_slice = unsafe { msg_memory.buf().as_slice() };
+//!
+//!     // The signature is stored in the `offset` field.
+//!     let signature = msg_memory.offset.map(|offset| offset.get()).unwrap_or_default();
+//!
+//!     // Note that we need to use the `IpcFoo` variant to access the object.
+//!     // If the object is not the correct type, `None` will be returned and
+//!     // the message will be returned.
+//!     let Some(foo) = IpcFoo::from_slice_mut(msg_slice, signature) else { continue };
+//!
+//!     // Do something with the object.
+//! }
+//! ```
+
 /// An object is Sendable if it is guaranteed to be flat and contains no pointers.
 /// This trait can be placed on objects that have invalid representations such as
 /// bools (which can only be 0 or 1) but it is up to the implementer to ensure that
 /// the correct object arrives on the other side.
 pub unsafe trait IpcSafe {}
 
+// Enable calling this crate as `flatipc` in tests.
 extern crate self as flatipc;
 
+// Allow doing `#[derive(flatipc::Ipc)]` instead of `#[derive(flatipc_derive::Ipc)]`
 pub use flatipc_derive::{Ipc, IpcSafe};
 #[cfg(feature = "xous")]
 mod backend {
-    pub use xous::CID;
     pub use xous::Error;
+    pub use xous::CID;
 }
+
 #[cfg(not(feature = "xous"))]
 mod backend {
     pub mod mock;
@@ -23,7 +141,7 @@ mod backend {
     }
 }
 
-pub use backend::{CID, Error};
+pub use backend::{Error, CID};
 
 pub mod string;
 pub use string::String;
@@ -56,7 +174,7 @@ where
 {
 }
 
-pub trait Ipc {
+pub unsafe trait Ipc {
     /// What this memory message is a representation of.
     type Original;
 
@@ -104,7 +222,15 @@ pub trait Ipc {
 
     /// Return the signature of this memory message. Useful for verifying
     /// that the correct message is being received.
-    fn signature(&self) -> u32;
+    fn signature(&self) -> usize;
+
+    #[cfg(feature = "xous")]
+    /// Convert a `xous::MemoryMessage` into an IPC object.
+    fn from_memory_message<'a>(msg: &'a xous::MemoryMessage) -> Option<&'a mut Self>;
+
+    #[cfg(feature = "xous")]
+    /// Convert an IPC object into a `xous::MemoryMessage`.
+    fn from_memory_message_mut<'a>(msg: &'a mut xous::MemoryMessage) -> Option<&'a mut Self>;
 }
 
 pub trait IntoIpc {
